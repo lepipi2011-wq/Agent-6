@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agent6-engine"
-version = "2026.6.29"
+version = "1.0.0"
 description = "Agent 6 — verifikations-first OEM-Discovery & -Verifikation (NBB Controls)"
 requires-python = ">=3.11"
 dependencies = [
