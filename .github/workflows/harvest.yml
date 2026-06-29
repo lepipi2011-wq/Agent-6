@@ -1,0 +1,27 @@
+name: agent6-image-harvest
+
+# Geplanter, versionierter Lauf — die Run-Logs SIND der Audit-Trail.
+on:
+  workflow_dispatch:        # manuell auslösbar
+  schedule:
+    - cron: "0 5 * * 1"     # jeden Montag 05:00 UTC
+
+jobs:
+  harvest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.txt
+      - name: Run harvester (live)
+        env:
+          SERPAPI_KEY: ${{ secrets.SERPAPI_KEY }}
+        run: |
+          python -m agent6_engine.cli --config config.yaml --live --max-oems 50
+      - name: Upload corpus + provenance
+        uses: actions/upload-artifact@v4
+        with:
+          name: scopegate-corpus
+          path: out/scopegate
