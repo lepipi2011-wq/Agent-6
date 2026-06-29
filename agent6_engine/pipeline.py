@@ -3,8 +3,10 @@
   python -m agent6_engine.pipeline init      # DB-Schema anlegen
   python -m agent6_engine.pipeline import    # Master -> DB (Orgs, Patterns, Claims)
   python -m agent6_engine.pipeline enrich    # Konnektoren -> LEI/VAT + sicheres Re-Merge
+  python -m agent6_engine.pipeline review    # Merge-Entscheidungen aus xlsx zurückspielen
   python -m agent6_engine.pipeline export    # Master-Sicht + Merge-Review als xlsx
   python -m agent6_engine.pipeline status    # Kennzahlen
+  python -m agent6_engine.pipeline all       # init+import+enrich+export in Folge
 
 Alle lesen config.yaml (master.path, database.url).
 """
@@ -13,7 +15,7 @@ import argparse
 from sqlalchemy import select, func
 from .config import load_config
 from . import db as DB
-from . import db_import, db_export, enrich_keys
+from . import db_import, db_export, enrich_keys, review_apply
 from .db import Organization, MergeCandidate, Claim
 
 
@@ -36,10 +38,17 @@ def cmd_import(cfg, args):
 
 def cmd_enrich(cfg, args):
     s = _session(cfg)
-    conns = [] if args.dry else None   # --dry: keine Live-Konnektoren, nur Re-Resolve
+    conns = [] if args.dry else None
     if args.dry:
-        print("(--dry: keine externen Aufrufe; nur Re-Resolve über bereits vorhandene Schlüssel)")
-    enrich_keys.run(s, connectors=conns, limit=args.limit, live=not args.dry)
+        print("(--dry: keine externen Aufrufe; nur Re-Resolve über vorhandene Schlüssel)")
+    enrich_keys.run(s, connectors=conns, limit=args.limit, live=not args.dry, region=args.region)
+    s.close()
+
+
+def cmd_review(cfg, args):
+    s = _session(cfg)
+    path = args.file or "agent6_merge_review.xlsx"
+    print("REVIEW:", review_apply.apply_review(s, path))
     s.close()
 
 
@@ -61,16 +70,27 @@ def cmd_status(cfg, args):
     s.close()
 
 
+def cmd_all(cfg, args):
+    print("== all: init -> import -> enrich -> export ==")
+    cmd_init(cfg, args)
+    cmd_import(cfg, args)
+    cmd_enrich(cfg, args)
+    cmd_export(cfg, args)
+    cmd_status(cfg, args)
+
+
 def main():
     ap = argparse.ArgumentParser(description="Agent 6 Pipeline")
-    ap.add_argument("command", choices=["init", "import", "enrich", "export", "status"])
+    ap.add_argument("command", choices=["init", "import", "enrich", "review", "export", "status", "all"])
     ap.add_argument("--config", default="config.yaml")
     ap.add_argument("--limit", type=int, default=None)
+    ap.add_argument("--region", default="eu", choices=["eu", "us"])
+    ap.add_argument("--file", default=None, help="xlsx für 'review'")
     ap.add_argument("--dry", action="store_true")
     args = ap.parse_args()
     cfg = load_config(args.config)
-    {"init": cmd_init, "import": cmd_import, "enrich": cmd_enrich,
-     "export": cmd_export, "status": cmd_status}[args.command](cfg, args)
+    {"init": cmd_init, "import": cmd_import, "enrich": cmd_enrich, "review": cmd_review,
+     "export": cmd_export, "status": cmd_status, "all": cmd_all}[args.command](cfg, args)
 
 
 if __name__ == "__main__":

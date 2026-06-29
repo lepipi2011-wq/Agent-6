@@ -111,19 +111,30 @@ def reresolve_by_strong_keys(session):
             orgs = list(session.scalars(select(Organization).where(col == keyval).order_by(Organization.id)))
             survivor = orgs[0]
             for dup in orgs[1:]:
-                session.execute(update(Claim).where(Claim.subject_type == "organization",
-                                Claim.subject_id == dup.id).values(subject_id=survivor.id))
-                session.execute(update(Model).where(Model.organization_id == dup.id)
-                                .values(organization_id=survivor.id))
-                session.execute(update(Contact).where(Contact.organization_id == dup.id)
-                                .values(organization_id=survivor.id))
-                for a in ("domain", "address", "vat", "hr_number", "lei"):
-                    if not getattr(survivor, a) and getattr(dup, a):
-                        setattr(survivor, a, getattr(dup, a))
-                session.add(MergeCandidate(new_org_id=survivor.id, matched_org_id=dup.id,
-                            new_name=survivor.canonical_name, matched_name=dup.canonical_name,
-                            tier="strong", reason=f"{keyattr}={keyval}", score=1.0, decision="merge"))
-                session.delete(dup)
+                merge_orgs(session, survivor, dup, tier="strong", reason=f"{keyattr}={keyval}")
                 merged += 1
         session.commit()
     return {"merged": merged}
+
+
+def merge_orgs(session, survivor, dup, tier="manual", reason=""):
+    """Führt dup in survivor: hängt Claims/Models/Contacts um, überträgt fehlende
+    Felder, protokolliert den Merge und löscht das Duplikat. Zentrale Merge-Logik
+    für Re-Resolve UND die manuelle Review-Rückspielung."""
+    from sqlalchemy import update as _update
+    from .db import Claim as _Claim, Model as _Model, Contact as _Contact, MergeCandidate as _MC
+    if survivor.id == dup.id:
+        return
+    session.execute(_update(_Claim).where(_Claim.subject_type == "organization",
+                    _Claim.subject_id == dup.id).values(subject_id=survivor.id))
+    session.execute(_update(_Model).where(_Model.organization_id == dup.id)
+                    .values(organization_id=survivor.id))
+    session.execute(_update(_Contact).where(_Contact.organization_id == dup.id)
+                    .values(organization_id=survivor.id))
+    for a in ("domain", "address", "vat", "hr_number", "lei"):
+        if not getattr(survivor, a) and getattr(dup, a):
+            setattr(survivor, a, getattr(dup, a))
+    session.add(_MC(new_org_id=survivor.id, matched_org_id=dup.id,
+                    new_name=dup.canonical_name, matched_name=survivor.canonical_name,
+                    tier=tier, reason=reason, score=1.0, decision="merge"))
+    session.delete(dup)
