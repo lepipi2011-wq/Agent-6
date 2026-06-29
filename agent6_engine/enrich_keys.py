@@ -12,16 +12,17 @@ from __future__ import annotations
 import time
 from sqlalchemy import select, func
 from .db import Organization, Claim
-from .connectors import GLEIFConnector, CompaniesHouseConnector, WikidataConnector
+from .connectors import EU_CONNECTORS, US_CONNECTORS
 from .entity_resolution import reresolve_by_strong_keys
 
 
-def default_connectors():
-    return [GLEIFConnector(), CompaniesHouseConnector(), WikidataConnector()]
+def default_connectors(region="eu"):
+    classes = US_CONNECTORS if str(region).lower() == "us" else EU_CONNECTORS
+    return [c() for c in classes]
 
 
-def enrich_all(session, connectors=None, limit=None, sleep=0.2, live=True) -> dict:
-    conns = connectors if connectors is not None else default_connectors()
+def enrich_all(session, connectors=None, limit=None, sleep=0.2, live=True, region="eu") -> dict:
+    conns = connectors if connectors is not None else default_connectors(region)
     orgs = list(session.scalars(select(Organization).order_by(Organization.id)))
     if limit:
         orgs = orgs[:limit]
@@ -52,9 +53,9 @@ def enrich_all(session, connectors=None, limit=None, sleep=0.2, live=True) -> di
     return stats
 
 
-def run(session, connectors=None, limit=None, live=True) -> dict:
+def run(session, connectors=None, limit=None, live=True, region="eu") -> dict:
     before = session.scalar(select(func.count(Organization.id)))
-    est = enrich_all(session, connectors=connectors, limit=limit, live=live)
+    est = enrich_all(session, connectors=connectors, limit=limit, live=live, region=region)
     rr = reresolve_by_strong_keys(session)
     after = session.scalar(select(func.count(Organization.id)))
     result = {"orgs_before": before, "orgs_after": after,
