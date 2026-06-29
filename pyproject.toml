@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agent6-engine"
+version = "2026.6.29"
+description = "Agent 6 — verifikations-first OEM-Discovery & -Verifikation (NBB Controls)"
+requires-python = ">=3.11"
+dependencies = [
+    "openpyxl>=3.1",
+    "requests>=2.31",
+    "PyYAML>=6.0",
+    "imagehash>=4.3",
+    "Pillow>=10.0",
+    "SQLAlchemy>=2.0",
+]
+
+[project.optional-dependencies]
+vlm = ["anthropic>=0.40"]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+agent6 = "agent6_engine.pipeline:main"
+
+[tool.setuptools]
+packages = ["agent6_engine", "agent6_engine.connectors"]

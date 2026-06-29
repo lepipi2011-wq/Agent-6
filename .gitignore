@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Virtuelle Umgebungen
+.venv/
+venv/
+env/
+
+# Lokale Konfiguration & Secrets (NIE committen)
+config.yaml
+.env
+*.key
+
+# Daten & Artefakte (nicht ins Repo)
+*.db
+*.sqlite
+*.xlsx
+*.xlsm
+out/
+outputs/
+scopegate/
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

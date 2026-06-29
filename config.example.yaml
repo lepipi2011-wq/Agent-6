@@ -1,0 +1,62 @@
+# Agent 6 — Image Harvester · Konfiguration
+# Alle Pfade/Schalter an einer Stelle. Keys via Umgebungsvariablen (nichts hartkodieren).
+
+master:
+  path: "./agent6_master_live.xlsx"     # Eingabe-Master (read-only genutzt)
+  main_sheet: "Agent 6 — Crawler OEM"   # em-dash
+  pattern_sheet: "Pattern DB"
+  bildsuche_sheet: "Bildsuche-Training"
+  header_row: 2
+  pattern_header_row: 4
+  bildsuche_header_row: 2
+
+output:
+  dir: "./out/scopegate"                 # raw/<class>/ + sources.csv landen hier
+  sources_csv: "sources.csv"
+  filename_pattern: "{cls}__{oem}__{idx}.jpg"
+
+harvest:
+  dry_run: true                          # true = keine Downloads/keine API-Kosten (Mock)
+  images_per_oem: 12                     # Ziel je OEM (OEM-direkt zuerst, dann Suche auffüllen)
+  oem_direct_first: true                 # Produktseite vor Bildsuche (Provenienz!)
+  max_pages_per_site: 6                  # wie viele Unterseiten je OEM-Domain gecrawlt werden
+  countries: []                          # leer = alle; sonst z.B. ["DE","AT","CH","IT"]
+  patterns: []                           # leer = alle; sonst z.B. ["P1","P2","P4"]
+  max_oems: 0                            # 0 = alle; >0 = Limit (Pilot, z.B. 25)
+  normalize_classes: true                # Adjacent/Exklusion -> out_scope, ^P\d+ -> P-Code, sonst unknown
+  vlm_filter: false                      # true = jedes Bild per Claude gegen die Klasse prüfen (braucht ANTHROPIC_API_KEY)
+  min_image_px: 300                      # kleinere Bilder (Logos/Icons) verwerfen
+  vlm_model: "claude-haiku-4-5-20251001"
+  request_timeout: 15
+  user_agent: "Agent6-ImageHarvester/1.0 (research; respects robots)"
+  respect_robots: true
+
+dedup:
+  phash_threshold: 6                     # <= -> Near-Duplicate, wird verworfen
+
+# Quellen-Score (1=Aggregator/Bildsuche, 2=Presse, 3=OEM-direkt)
+source_score:
+  oem_direct: 3
+  press: 2
+  image_search: 1
+
+# Quality-Gate (deine Regel, je Batch)
+quality_gate:
+  yield_min: 0.30        # behalten/(behalten+verworfen)
+  oem_direct_min: 0.40   # Anteil OEM-direkter Bilder
+  score_min: 2.0         # mittlerer Quellen-Score
+
+# Bildsuche (Fallback nach OEM-direkt)
+search:
+  provider: "serpapi"    # serpapi | dataforseo | none
+  serpapi_env: "SERPAPI_KEY"
+  results_per_query: 8
+
+# Hard Negatives (out_scope) — Rad/Anti-Pattern aus den Runs; erweiterbar
+hard_negatives:
+  enabled: true
+  seeds:
+    - {oem: "AS-Motor Sherpa", url: "", note: "wheeled"}
+    - {oem: "Antonio Carraro Tigrecar", url: "", note: "wheeled"}
+    - {oem: "Normet Spraymec", url: "", note: "wheeled"}
+    - {oem: "Tigercat T726G", url: "", note: "wheeled"}
