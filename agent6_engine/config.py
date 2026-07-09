@@ -38,6 +38,12 @@ def _deep_merge(base, over):
 
 
 def load_config(path: str | None = None) -> dict:
+    # .env laden (falls vorhanden), damit API-Keys als Umgebungsvariablen bereitstehen.
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+    except Exception:
+        pass
     user = {}
     if path and os.path.exists(path):
         try:

@@ -79,18 +79,36 @@ def cmd_all(cfg, args):
     cmd_status(cfg, args)
 
 
+def cmd_discover(cfg, args):
+    s = _session(cfg)
+    from . import discovery, master_io
+    wb = master_io.open_master(cfg)
+    patterns = master_io.read_patterns(wb, cfg)
+    only = [p.strip() for p in args.patterns.split(",")] if args.patterns else None
+    res = discovery.discover(s, cfg, patterns, per_pattern=args.per_pattern,
+                             only_patterns=only)
+    print("DISCOVER:", res)
+    if res.get("quality_warning"):
+        print("  ⚠ QUALITÄT:", res["quality_warning"])
+    s.close()
+
+
 def main():
     ap = argparse.ArgumentParser(description="Agent 6 Pipeline")
-    ap.add_argument("command", choices=["init", "import", "enrich", "review", "export", "status", "all"])
+    ap.add_argument("command", choices=["init", "import", "enrich", "review", "export",
+                                        "status", "all", "discover"])
     ap.add_argument("--config", default="config.yaml")
     ap.add_argument("--limit", type=int, default=None)
     ap.add_argument("--region", default="eu", choices=["eu", "us"])
     ap.add_argument("--file", default=None, help="xlsx für 'review'")
+    ap.add_argument("--patterns", default=None, help="Discovery: nur diese Codes, z.B. P4,P5")
+    ap.add_argument("--per-pattern", dest="per_pattern", type=int, default=8)
     ap.add_argument("--dry", action="store_true")
     args = ap.parse_args()
     cfg = load_config(args.config)
     {"init": cmd_init, "import": cmd_import, "enrich": cmd_enrich, "review": cmd_review,
-     "export": cmd_export, "status": cmd_status, "all": cmd_all}[args.command](cfg, args)
+     "export": cmd_export, "status": cmd_status, "all": cmd_all,
+     "discover": cmd_discover}[args.command](cfg, args)
 
 
 if __name__ == "__main__":

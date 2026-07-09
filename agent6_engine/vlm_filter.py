@@ -64,6 +64,32 @@ def keep_image(path, cls, patterns, cfg) -> tuple[bool, str]:
         return True, f"vlm-fehler:{type(e).__name__}"
 
 
+def keep_candidate(name, text, cls, patterns, cfg) -> tuple[bool, str]:
+    """Text-Scope-Gate für Discovery: Firma+Snippet gegen Klasse prüfen (kein Bild).
+    Kein Key -> (True,'kein-key'): Gate inaktiv, discover() warnt dann."""
+    key = os.environ.get("ANTHROPIC_API_KEY")
+    if not key:
+        return True, "kein-key"
+    try:
+        import anthropic
+        model = cfg["harvest"].get("vlm_model", "claude-haiku-4-5-20251001")
+        client = anthropic.Anthropic(api_key=key)
+        prompt = (
+            f"Firma: {name}\nText: {text}\n\n"
+            f"Ist das ein Hersteller einer kettengetriebenen (Raupen-)Maschine mit "
+            f"Fernsteuerung/HMI, passend zu Klasse {cls}? "
+            "Lehne ab: Radmaschinen, Aggregatoren/Händler, AGV/SPMT/Schreitbagger/TBM/"
+            "Sewer-Inspektion, reine Software/Beratung. "
+            'Antworte NUR JSON {"keep": true|false, "reason": "kurz"}.'
+        )
+        msg = client.messages.create(model=model, max_tokens=120,
+                                     messages=[{"role": "user", "content": prompt}])
+        txt = "".join(b.text for b in msg.content if getattr(b, "type", "") == "text")
+        return parse_verdict(txt)
+    except Exception as e:
+        return True, f"vlm-fehler:{type(e).__name__}"
+
+
 def parse_verdict(txt: str) -> tuple[bool, str]:
     """Trennt Parsing vom Netzwerk (offline testbar)."""
     s = txt.strip()
