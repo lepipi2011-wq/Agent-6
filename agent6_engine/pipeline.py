@@ -70,6 +70,13 @@ def cmd_status(cfg, args):
     s.close()
 
 
+def cmd_verify(cfg, args):
+    s = _session(cfg)
+    from . import verify
+    print("VERIFY:", verify.verify_all(s))
+    s.close()
+
+
 def cmd_all(cfg, args):
     print("== all: init -> import -> enrich -> export ==")
     cmd_init(cfg, args)
@@ -96,7 +103,7 @@ def cmd_discover(cfg, args):
 def main():
     ap = argparse.ArgumentParser(description="Agent 6 Pipeline")
     ap.add_argument("command", choices=["init", "import", "enrich", "review", "export",
-                                        "status", "all", "discover"])
+                                        "status", "all", "discover", "verify"])
     ap.add_argument("--config", default="config.yaml")
     ap.add_argument("--limit", type=int, default=None)
     ap.add_argument("--region", default="eu", choices=["eu", "us"])
@@ -108,7 +115,7 @@ def main():
     cfg = load_config(args.config)
     {"init": cmd_init, "import": cmd_import, "enrich": cmd_enrich, "review": cmd_review,
      "export": cmd_export, "status": cmd_status, "all": cmd_all,
-     "discover": cmd_discover}[args.command](cfg, args)
+     "discover": cmd_discover, "verify": cmd_verify}[args.command](cfg, args)
 
 
 if __name__ == "__main__":

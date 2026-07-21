@@ -47,11 +47,14 @@ def keep_image(path, cls, patterns, cfg) -> tuple[bool, str]:
         model = cfg["harvest"].get("vlm_model", "claude-haiku-4-5-20251001")
         client = anthropic.Anthropic(api_key=key)
         prompt = (
-            "Du bist ein strenger Bild-Klassifikator für Industriemaschinen. "
+            "Du bist ein STRENGER Bild-Klassifikator für Industriemaschinen. "
             f"Erwartet wird {_rubric(cls, patterns)} "
-            "Antworte NUR als JSON {\"keep\": true|false, \"reason\": \"kurz\"}. "
-            "keep=false bei: Turbine, Lokomotive, Fabrikhalle/Gebäude, Logo, Person-Porträt, "
-            "Diagramm, Rad-getriebener Maschine oder wenn keine Kette/kein Fahrwerk erkennbar."
+            "PFLICHT: sichtbares durchgehendes KETTEN-/Raupenfahrwerk (crawler undercarriage). "
+            'Antworte NUR als JSON {"keep": true|false, "reason": "kurz"}. '
+            "keep=false ZWINGEND bei: Rädern/Reifen statt Kette, Radlader/Stapler/LKW/PKW, "
+            "handgeführtem Gerät/Sonde/Scanner/Messtechnik, Schiff/Boot, Turbine, Gebäude/Halle, "
+            "Logo/Icon/Grafik, Diagramm, Person-Porträt/Marketingszene, historischem Foto, "
+            "Stockbild — oder wenn kein Kettenfahrwerk klar erkennbar ist. Im Zweifel keep=false."
         )
         msg = client.messages.create(
             model=model, max_tokens=120,
@@ -76,10 +79,11 @@ def keep_candidate(name, text, cls, patterns, cfg) -> tuple[bool, str]:
         client = anthropic.Anthropic(api_key=key)
         prompt = (
             f"Firma: {name}\nText: {text}\n\n"
-            f"Ist das ein Hersteller einer kettengetriebenen (Raupen-)Maschine mit "
+            f"Ist das ein Hersteller einer KETTENGETRIEBENEN (Raupen-)Maschine mit "
             f"Fernsteuerung/HMI, passend zu Klasse {cls}? "
-            "Lehne ab: Radmaschinen, Aggregatoren/Händler, AGV/SPMT/Schreitbagger/TBM/"
-            "Sewer-Inspektion, reine Software/Beratung. "
+            "Lehne ZWINGEND ab: Rad-/Radlader-/Stapler-/LKW-Hersteller, Aggregatoren/Händler, "
+            "handgeführte Messtechnik/Sonden/3D-Scanner (NDT), Schiffe/Marine, AGV/SPMT/"
+            "Schreitbagger/TBM/Sewer-Inspektion, reine Software/Beratung/Komponenten. "
             'Antworte NUR JSON {"keep": true|false, "reason": "kurz"}.'
         )
         msg = client.messages.create(model=model, max_tokens=120,

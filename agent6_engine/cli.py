@@ -4,7 +4,7 @@ Liest Master -> Seeds + Pattern-DB + Bildsuche-Regeln, erntet je Pattern (Klasse
 fügt Hard-Negatives als out_scope hinzu, dedupliziert, meldet Quality-Gate.
 """
 from __future__ import annotations
-import argparse, os
+import argparse, os, csv
 from collections import Counter
 
 from .config import load_config
@@ -12,6 +12,20 @@ from . import master_io as M
 from . import harvest_rules as R
 from . import image_harvest as H
 from . import quality_gate as QG
+
+
+def _already_done(cfg):
+    """OEM-Namen aus vorhandener sources.csv (Spalte 3 = seed.oem)."""
+    sp = os.path.join(cfg["output"]["dir"], cfg["output"]["sources_csv"])
+    done = set()
+    if os.path.exists(sp):
+        with open(sp, newline="", encoding="utf-8") as f:
+            r = csv.reader(f)
+            next(r, None)  # Header
+            for row in r:
+                if len(row) > 2 and row[2]:
+                    done.add(row[2])
+    return done
 
 
 def _filter_seeds(seeds, cfg):
@@ -24,6 +38,21 @@ def _filter_seeds(seeds, cfg):
         if pats and (s.pattern not in pats):
             continue
         out.append(s)
+    # Scope-Labels aus dem Master respektieren (Handarbeit des Teams!)
+    if cfg["harvest"].get("respect_scope_label", True):
+        before = len(out)
+        out = [s for s in out if getattr(s, "scope", "") != "exclude"]
+        if before - len(out):
+            print(f"Scope-Label: {before - len(out)} OEMs übersprungen "
+                  f"(Ausschluss/Adjacent/Distributor laut Master).")
+    # Resume: bereits geerntete OEMs überspringen (vor dem Limit!)
+    if cfg["harvest"].get("resume", True):
+        done = _already_done(cfg)
+        if done:
+            before = len(out)
+            out = [s for s in out if s.oem not in done]
+            print(f"Resume: {before - len(out)} bereits erledigte OEMs übersprungen, "
+                  f"{len(out)} offen (--fresh erzwingt Neustart).")
     if cfg["harvest"]["max_oems"]:
         out = out[: cfg["harvest"]["max_oems"]]
     return out
@@ -86,9 +115,11 @@ def main():
     ap.add_argument("--hypothesis", default="OEM-direkte Produktseiten liefern klassenreine Bilder über Schwelle")
     ap.add_argument("--live", action="store_true", help="DRY_RUN aus (echte Downloads/API)")
     ap.add_argument("--max-oems", type=int, default=None)
+    ap.add_argument("--fresh", action="store_true",
+                    help="Resume aus: alle OEMs neu ernten (ignoriert sources.csv)")
     args = ap.parse_args()
     cfg_override = {}
-    if args.live or args.max_oems is not None:
+    if args.live or args.max_oems is not None or args.fresh:
         # leichte CLI-Overrides ohne config.yaml zu ändern
         from .config import load_config as _lc
         cfg = _lc(args.config)
@@ -96,6 +127,8 @@ def main():
             cfg["harvest"]["dry_run"] = False
         if args.max_oems is not None:
             cfg["harvest"]["max_oems"] = args.max_oems
+        if args.fresh:
+            cfg["harvest"]["resume"] = False
         # temporär schreiben? -> stattdessen direkt run mit cfg
         return _run_with_cfg(cfg, args.hypothesis)
     run(args.config, args.hypothesis)

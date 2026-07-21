@@ -1,0 +1,156 @@
+[
+ {
+  "code": "P1",
+  "segment": "Walk-Behind Deichsel",
+  "img_query": "walk-behind tracked dumper pendant wired operator",
+  "text_terms": "walk-behind tracked [segment] pendant wired operator → ersetze [segment]: dumper / carrier / mower / trencher / loader / compactor",
+  "ref_oem": "Canycom BP419 / BFP602",
+  "method": "Bild",
+  "exclude": ""
+ },
+ {
+  "code": "P2",
+  "segment": "Pendant Box am Kabel",
+  "img_query": "mini crawler crane pendant control wired operator box cable",
+  "text_terms": "mini [machine] crane pendant wired control operator cable → [machine]: crawler / spider / tracked / pick-carry",
+  "ref_oem": "Maeda MC-505 Unic URW-376",
+  "method": "Beides",
+  "exclude": "",
+  "text_query": "Raupenkran Minikran Kettentransporter crawler carrier manufacturer Hersteller"
+ },
+ {
+  "code": "P3",
+  "segment": "Tethered Kabel",
+  "img_query": "tracked inspection robot military mine EOD defense crawler",
+  "text_terms": "tracked inspection robot defense military mine offshore oil platform remote",
+  "ref_oem": "iPEK ROVION Environsight ROVVER",
+  "method": "Text",
+  "exclude": "underwater subsea rov tunnel sewer pipe drain pipeline duct wastewater ROV",
+  "text_query": "tracked inspection robot defense military EOD mine crawler manufacturer"
+ },
+ {
+  "code": "P4",
+  "segment": "Joystick-Kabine + Display",
+  "img_query": "tracked machine joystick cabin display CAN operator 2024",
+  "text_terms": "tracked [segment] joystick cabin CAN display [country] new 2024 → [segment]: excavator / crane / harvester / drill / dumper / carrier",
+  "ref_oem": "Liebherr R 926 Normet Spraymec",
+  "method": "Text",
+  "exclude": "",
+  "text_query": "Raupenbagger Kettendumper crawler carrier tracked machine manufacturer Hersteller"
+ },
+ {
+  "code": "P5",
+  "segment": "Funk non-SIL (Upgrade-Kandidat)",
+  "img_query": "tracked machine radio remote control non-SIL CAN display joystick",
+  "text_terms": "tracked [machine] radio remote control non-SIL CAN [segment] → Funk + CAN vorhanden = direkter Safety RC Upgrade",
+  "ref_oem": "Brokk SmartRemote MDB Green Climber",
+  "method": "Text",
+  "exclude": "",
+  "text_query": "Raupenmaschine crawler machine radio remote controlled manufacturer Hersteller"
+ },
+ {
+  "code": "P6",
+  "segment": "Pedana Stand-On",
+  "img_query": "cingolato pedana operatore stand-on tracked Italy motocarriola",
+  "text_terms": "cingolato pedana [stand-on/walk-behind] [country] → IT / ES / FR Aber auch: tracked stand-on carrier [country]",
+  "ref_oem": "Cormidi C50 BE Messersi TC130",
+  "method": "Bild",
+  "exclude": ""
+ },
+ {
+  "code": "P7",
+  "segment": "Tracked Concrete Pump Pendant",
+  "img_query": "tracked concrete pump pendant wired CAN operator boom Italy",
+  "text_terms": "tracked concrete pump pendant wired CAN [country] → IT / DE / AT / CH / US / AU",
+  "ref_oem": "Mecbo RoboTrack IT Royalmac HC12 IT",
+  "method": "Text",
+  "exclude": "",
+  "text_query": "tracked concrete pump crawler placing boom machine manufacturer"
+ },
+ {
+  "code": "P8",
+  "segment": "Tracked Stump Grinder RC/Walk-Behind",
+  "img_query": "tracked stump grinder radio remote CAN walk-behind new 2024",
+  "text_terms": "tracked stump grinder [RC/walk-behind] CAN [country] → US / DE / UK / AU / CA / SE",
+  "ref_oem": "Bandit 2550XP US Carlton 5014 NTX US",
+  "method": "Bild",
+  "exclude": ""
+ },
+ {
+  "code": "P9",
+  "segment": "Tracked Firefighting/ Hazmat Robot",
+  "img_query": "tracked firefighting robot remote CAN wired pendant hazmat 2024",
+  "text_terms": "tracked [firefighting/hazmat] robot remote CAN [country] → HR / DE / US / CN / SE / FR",
+  "ref_oem": "Dok-Ing XD Fire HR RTE Parabellum HR",
+  "method": "Beides",
+  "exclude": "",
+  "text_query": "tracked firefighting demolition robot crawler machine manufacturer"
+ },
+ {
+  "code": "P10",
+  "segment": "Tracked Stand-On Mini Loader",
+  "img_query": "tracked stand-on mini loader CAN joystick operator display 2024",
+  "text_terms": "tracked stand-on mini loader CAN joystick [country] → US / DE / AU / NZ / UK / CA",
+  "ref_oem": "Boxer 700HDX US ASV RT-40 US",
+  "method": "Bild",
+  "exclude": ""
+ },
+ {
+  "code": "P11",
+  "segment": "Tracked Shotcrete Robot Arm",
+  "img_query": "tracked shotcrete machine robot arm tethered CAN tunnel operator 2024",
+  "text_terms": "tracked shotcrete robot arm CAN [cabin/tethered] tunnel [country] → FI / SE / DE / AT / CH / AU / CA",
+  "ref_oem": "ELQUIP Track Shotcrete Normet Spraymec FI",
+  "method": "Beides",
+  "exclude": "",
+  "text_query": "tracked shotcrete spraying machine crawler manipulator manufacturer"
+ },
+ {
+  "code": "P12",
+  "segment": "Tracked Mini Forwarder Kompakt-Kabine IQAN",
+  "img_query": "tracked mini forwarder compact IQAN CAN joystick cabin forestry 2024",
+  "text_terms": "tracked mini forwarder compact IQAN CAN [country] → FI / SE / DE / AT / CA",
+  "ref_oem": "Usewood Log Master FI Usewood Combi FI",
+  "method": "Text",
+  "exclude": "",
+  "text_query": "tracked mini forwarder forestry crawler harvester machine manufacturer"
+ },
+ {
+  "code": "P13",
+  "segment": "Tracked Vacuum Excavator Pendant",
+  "img_query": "tracked vacuum excavator pendant wired CAN operator hydro 2024",
+  "text_terms": "tracked vacuum excavator [pendant/walk-behind] CAN [country] → CA / US / UK / DE / AU / NZ",
+  "ref_oem": "YRCO T-VAC2 CA AIR-VAC Track CA",
+  "method": "Text",
+  "exclude": "",
+  "text_query": "tracked vacuum suction excavator crawler machine manufacturer"
+ },
+ {
+  "code": "P14",
+  "segment": "Tracked Wood Chipper Deichsel/Walk-Behind",
+  "img_query": "tracked wood chipper walk-behind wired pendant CAN operator 2024",
+  "text_terms": "tracked wood chipper [walk-behind/RC] CAN [country] → UK / US / DE / IT / AU / SE",
+  "ref_oem": "Foxwood TRX120 PRO UK Bandit Track Chipper US",
+  "method": "Bild",
+  "exclude": ""
+ },
+ {
+  "code": "P15",
+  "segment": "Tracked RC Mulcher Tool Carrier (Funk+CAN)",
+  "img_query": "tracked RC mulcher tool carrier remote CAN Italy new 2024",
+  "text_terms": "tracked RC [mulcher/carrier] remote CAN [country] → IT / DE / US / FR / ES / AU",
+  "ref_oem": "FAE RCU75 IT Seppi M. Robo IT",
+  "method": "Bild",
+  "exclude": ""
+ },
+ {
+  "code": "P16",
+  "segment": "Tracked Ag-Robot Tethered/Autonom CAN",
+  "img_query": "tracked weeding robot CAN tethered autonomous vineyard orchard 2024",
+  "text_terms": "tracked [weeding/spraying/scouting] robot CAN autonomous [country] → FR / IT / ES / DE / NL / US / AU",
+  "ref_oem": "AllyNav Weeding FR Naïo Oz/Dino FR",
+  "method": "Beides",
+  "exclude": "",
+  "text_query": "tracked agricultural field robot crawler machine manufacturer"
+ }
+]
