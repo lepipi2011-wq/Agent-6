@@ -140,22 +140,29 @@ class AirtableWriter:
         if not self.enabled:
             return 0
         import requests
+
+        def _norm(u):
+            u = (u or "").split("?")[0].rstrip("/").strip().lower()
+            return u
         by_url = {}
         for rec in self._all_records():
             u = rec.get("fields", {}).get("Bild-URL")
             if u:
-                by_url[u] = rec["id"]
-        updates = []
+                by_url[_norm(u)] = rec["id"]
+        updates, unmatched = [], 0
         for r in rows:
-            rid = by_url.get(r.get("bild_url"))
+            rid = by_url.get(_norm(r.get("bild_url")))
             if not rid:
+                unmatched += 1
                 continue
             updates.append({"id": rid, "fields": {
                 "OEM": r.get("oem", ""), "Modell": r.get("modell", ""),
                 "Anwendungsart": r.get("anwendung", ""), "HMI-Typ": r.get("hmi_typ", "unklar")}})
+        print(f"  Airtable: {len(updates)} Records zugeordnet, {unmatched} ohne Treffer "
+              f"(von {len(by_url)} Records in der Base).")
         done = 0
         for i in range(0, len(updates), 10):
-            batch = updates[i:i+10]
+            batch = updates[i:i + 10]
             try:
                 resp = requests.patch(f"https://api.airtable.com/v0/{self.base}/{self.table}",
                                       headers=self._hdr(),
@@ -163,7 +170,8 @@ class AirtableWriter:
                 resp.raise_for_status()
                 done += len(resp.json().get("records", []))
             except Exception as e:
-                print(f"  Airtable-Update-Fehler: {e}")
+                body = getattr(getattr(e, "response", None), "text", "")
+                print(f"  Airtable-Update-Fehler: {e} {body[:200]}")
         return done
 
     def write(self, records):
