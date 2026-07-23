@@ -14,7 +14,7 @@
   "img_query": "mini crawler crane pendant control wired operator box cable",
   "text_terms": "mini [machine] crane pendant wired control operator cable → [machine]: crawler / spider / tracked / pick-carry",
   "ref_oem": "Maeda MC-505 Unic URW-376",
-  "method": "Beides",
+  "method": "Text",
   "exclude": "",
   "text_query": "Raupenkran Minikran Kettentransporter crawler carrier manufacturer Hersteller"
  },
@@ -88,8 +88,8 @@
  },
  {
   "code": "P10",
-  "segment": "Tracked Stand-On Mini Loader",
-  "img_query": "tracked stand-on mini loader CAN joystick operator display 2024",
+  "segment": "Kompakt-Raupenlader & Mini-Dumper",
+  "img_query": "tracked compact loader mini loader stand-on OR tracked mini dumper crawler carrier",
   "text_terms": "tracked stand-on mini loader CAN joystick [country] → US / DE / AU / NZ / UK / CA",
   "ref_oem": "Boxer 700HDX US ASV RT-40 US",
   "method": "Bild",

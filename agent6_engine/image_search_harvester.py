@@ -135,6 +135,71 @@ class AirtableWriter:
             pass
         return recs
 
+    def candidates_missing(self, field="HMI-Typ", limit=None):
+        """Alle Records, bei denen `field` leer ist -> Kandidaten fuer die Anreicherung.
+        Damit werden auch Bilder aus FRUEHEREN Harvest-Laeufen nachgezogen (das lokale
+        Manifest enthaelt immer nur den letzten Lauf)."""
+        if not self.enabled:
+            return []
+        out = []
+        for rec in self._all_records():
+            f = rec.get("fields", {})
+            if str(f.get(field, "") or "").strip():
+                continue                       # schon angereichert
+            url = f.get("Bild-URL")
+            if not url:
+                continue
+            page = f.get("Quell-Seite") or ""
+            if not page:                       # Altbestand ohne Quell-Seite: Domain-Wurzel
+                from urllib.parse import urlparse
+                p = urlparse(url)
+                page = f"{p.scheme}://{p.netloc}" if p.scheme and p.netloc else url
+            _pv = str(f.get("Pattern-Vorschlag", "") or "").split()
+            pat = _pv[0] if _pv else ""
+            out.append({"url": url, "page": page, "pattern": pat})
+            if limit and len(out) >= limit:
+                break
+        return out
+
+    def update_fields(self, rows, field_map, key="bild_url"):
+        """Schreibt beliebige Felder in bestehende Records.
+        field_map: {Airtable-Spalte: Schluessel-in-row}. Match ueber Bild-URL."""
+        if not self.enabled:
+            return 0
+        import requests
+
+        def _norm(u):
+            return (u or "").split("?")[0].rstrip("/").strip().lower()
+        by_url = {}
+        for rec in self._all_records():
+            u = rec.get("fields", {}).get("Bild-URL")
+            if u:
+                by_url[_norm(u)] = rec["id"]
+        updates, unmatched = [], 0
+        for r in rows:
+            rid = by_url.get(_norm(r.get(key)))
+            if not rid:
+                unmatched += 1
+                continue
+            updates.append({"id": rid,
+                            "fields": {col: (r.get(src) if r.get(src) is not None else "")
+                                       for col, src in field_map.items()}})
+        print(f"  Airtable: {len(updates)} Records zugeordnet, {unmatched} ohne Treffer "
+              f"(von {len(by_url)} Records in der Base).")
+        done = 0
+        for i in range(0, len(updates), 10):
+            try:
+                resp = requests.patch(f"https://api.airtable.com/v0/{self.base}/{self.table}",
+                                      headers=self._hdr(),
+                                      json={"records": updates[i:i + 10], "typecast": True},
+                                      timeout=30)
+                resp.raise_for_status()
+                done += len(resp.json().get("records", []))
+            except Exception as e:
+                body = getattr(getattr(e, "response", None), "text", "")
+                print(f"  Airtable-Update-Fehler: {e} {body[:200]}")
+        return done
+
     def update_enrichment(self, rows):
         """Schreibt OEM/Modell/Anwendungsart/HMI-Typ in bestehende Records (Match ueber Bild-URL)."""
         if not self.enabled:
@@ -157,7 +222,9 @@ class AirtableWriter:
                 continue
             updates.append({"id": rid, "fields": {
                 "OEM": r.get("oem", ""), "Modell": r.get("modell", ""),
-                "Anwendungsart": r.get("anwendung", ""), "HMI-Typ": r.get("hmi_typ", "unklar")}})
+                "Anwendungsart": r.get("anwendung", ""), "HMI-Typ": r.get("hmi_typ", "unklar"),
+                "CAN-Bus": r.get("can_bus", "unklar"),
+                "Preis EUR": r.get("preis_eur"), "Priorität": r.get("prioritaet", "")}})
         print(f"  Airtable: {len(updates)} Records zugeordnet, {unmatched} ohne Treffer "
               f"(von {len(by_url)} Records in der Base).")
         done = 0
@@ -203,6 +270,7 @@ def build_record(cand, pattern_code):
         "Pattern-Vorschlag": PATTERN_CHOICE.get(pattern_code, pattern_code),
         "Query": cand.get("query", ""),
         "Quelle": cand.get("source") or _domain(cand.get("page") or cand["url"]),
+        "Quell-Seite": cand.get("page", ""),
         "Status": "Neu",
         "Harvest-Datum": datetime.date.today().isoformat(),
     }
@@ -221,9 +289,15 @@ def build_queries(pattern):
 
 # --------------------------------------------------------------- Loop
 def harvest(cfg, patterns, per_pattern=15, searcher=None, writer=None,
-            manifest_path="agent6_image_candidates.json", only_patterns=None) -> dict:
+            manifest_path="agent6_image_candidates.json", only_patterns=None,
+            repo=None) -> dict:
     searcher = searcher if searcher is not None else SerpImageSearcher(cfg)
     writer = writer if writer is not None else AirtableWriter(cfg=cfg)
+    from .query_repo import queries_for_pattern
+    repo_queries = repo.load(typ="Bild", patterns=only_patterns) if repo else {}
+    if repo_queries:
+        print(f"  Query-Repo: {sum(len(v) for v in repo_queries.values())} aktive Bild-Queries")
+    q_stats = {}
     known = writer.existing_urls() if hasattr(writer, "existing_urls") else set()
     seen = set(known)
     all_records, manifest = [], []
@@ -236,17 +310,18 @@ def harvest(cfg, patterns, per_pattern=15, searcher=None, writer=None,
         if getattr(pat, "method", "Beides") == "Text":
             stats["by_pattern"][code] = "übersprungen (Text-Pattern)"
             continue
-        neg = getattr(pat, "exclude", "")
         p_new = 0
-        for q in build_queries(pat):
+        for entry in queries_for_pattern(repo_queries, code, pat, "Bild"):
+            q, neg, rid = entry["query"], entry.get("negativ", ""), entry.get("record_id")
             if neg:
                 q = q + " " + " ".join("-" + t for t in neg.split())
+            q_found = q_new = 0
             stats["searched"] += 1
             for res in searcher.search(q, n=per_pattern):
                 url = res.get("url")
                 if not url:
                     continue
-                stats["found"] += 1
+                stats["found"] += 1; q_found += 1
                 if is_junk(url):
                     stats["junk"] += 1
                     continue
@@ -260,7 +335,9 @@ def harvest(cfg, patterns, per_pattern=15, searcher=None, writer=None,
                 manifest.append({"url": url, "pattern": code, "query": q,
                                  "source": cand["source"], "page": res.get("page", "")})
                 stats["new"] += 1
-                p_new += 1
+                p_new += 1; q_new += 1
+            if rid:
+                q_stats[rid] = (q_new, q_found)
         stats["by_pattern"][code] = p_new
 
     # lokales Manifest immer schreiben (Backup / fürs Review-Widget)
@@ -273,6 +350,8 @@ def harvest(cfg, patterns, per_pattern=15, searcher=None, writer=None,
     # Airtable, falls verbunden
     if getattr(writer, "enabled", False) and all_records:
         stats["airtable_written"] = writer.write(all_records)
+    if repo and q_stats:
+        stats["queries_bewertet"] = repo.report(q_stats)
     stats.update(quality_gate(stats))
     return stats
 
@@ -298,6 +377,8 @@ def main():
     ap.add_argument("--patterns-file", dest="patterns_file", default=None,
                     help="patterns.json statt Master (für Automatik)")
     ap.add_argument("--out", default="agent6_image_candidates.json")
+    ap.add_argument("--no-repo", dest="no_repo", action="store_true",
+                    help="Query-Repo (Airtable) ignorieren, nur patterns.json nutzen")
     args = ap.parse_args()
     cfg = load_config(args.config)
     if args.patterns_file:
@@ -305,8 +386,13 @@ def main():
     else:
         patterns = M.read_patterns(M.open_master(cfg), cfg)
     only = [p.strip() for p in args.patterns.split(",")] if args.patterns else None
+    repo = None
+    if not args.no_repo:
+        from .query_repo import QueryRepo
+        r = QueryRepo()
+        repo = r if r.enabled else None
     res = harvest(cfg, patterns, per_pattern=args.per_pattern, only_patterns=only,
-                  manifest_path=args.out)
+                  manifest_path=args.out, repo=repo)
     print("BILD-HARVEST:", res)
     if res.get("quality_warning"):
         print("  ⚠ QUALITÄT:", res["quality_warning"])

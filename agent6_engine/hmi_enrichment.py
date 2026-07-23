@@ -18,6 +18,20 @@ from urllib.parse import urlparse
 
 HMI_KATEGORIEN = ("Kabel-Pendant", "Stationär/fest", "Funk", "Fußpedal/Vor-Ort", "unklar")
 
+# CAN-Bus / elektrisch ansteuerbare Hydraulik — harter Scope-Filter (ohne = nicht nachrüstbar)
+CAN_LEVELS = ("CAN belegt", "wahrscheinlich CAN", "wahrscheinlich rein-hydraulisch", "unklar")
+CAN_VOKABULAR = {
+    "direkter CAN-Beleg": "CAN, CAN-Bus, CANbus, CANopen, J1939 / CAN, CAN bus / CAN, bus CAN",
+    "Steuerungssystem-Anker (CAN praktisch sicher)": "IQAN, Danfoss PVG, PLUS+1, Bosch Rexroth BODAS, "
+        "Parker IQAN, Sauer-Danfoss, Epec, MdrivePlus",
+    "E-Hydraulik-Anker (CAN wahrscheinlich)": "elektro-hydraulisch, elektrische Vorsteuerung, "
+        "proportionale E-Steuerung / electro-hydraulic, electric pilot control, electric joystick, "
+        "load-sensing electric, EHC / comando elettroidraulico / commande électrohydraulique",
+    "Gegen-Anker (rein hydraulisch -> OUT)": "rein hydraulisch, manuelle Handhebel, direkte "
+        "Ventilsteuerung, mechanische Vorsteuerung / manual hydraulic, direct spool valves, "
+        "mechanical levers, hand levers / puramente idraulico / purement hydraulique",
+}
+
 HMI_VOKABULAR = {
     "Kabel-Pendant": "Kabel-Pendant, Hängetaster, kabelgebundenes Handbediengerät, Kabelsteuerung mit "
                      "Handgerät / cable pendant, tethered pendant, umbilical control, hand-held on cable "
@@ -31,6 +45,24 @@ HMI_VOKABULAR = {
     "Fußpedal/Vor-Ort": "Fußpedal, Deichsel, Vor-Ort-Bedienung / foot pedal, deadman, walk-behind, "
                         "on-board controls / pedale / pédale",
 }
+
+# Preis: Listenpreis/UVP aus Datenblatt/Shop; unter ~10k EUR lohnt der RC-Aufwand meist nicht
+PREIS_HINWEISE = ("Preis, Listenpreis, UVP, ab EUR, zzgl. MwSt / price, list price, MSRP, starting at, "
+                  "from USD / prezzo, prezzo di listino / prix, prix catalogue")
+PREIS_SCHWELLE_EUR = 10000
+
+
+def priorisiere(can_bus, preis_eur, hmi_typ) -> str:
+    """A = CAN + Preis ueber Schwelle (bester Fit), B = CAN oder Preis ok, C = hydraulisch/guenstig.
+    Hydraulische bleiben drin (Pierres Vorgabe), CAN hat aber Vorrang."""
+    can_ok = can_bus in ("CAN belegt", "wahrscheinlich CAN")
+    preis_ok = (preis_eur is None) or (preis_eur >= PREIS_SCHWELLE_EUR)
+    if can_ok and preis_ok:
+        return "A"
+    if can_ok or preis_ok:
+        return "B"
+    return "C"
+
 
 _DEALER = ("masterwholesale.", "houseofcontractors.", "mascus.", "machineryzone.",
            "directindustry.", "europages.", "exapro.", "ebay.", "amazon.", "alibaba.",
@@ -50,12 +82,30 @@ def is_dealer(url) -> bool:
     return any(x in d for x in _DEALER)
 
 
-def fetch_page_text(url, timeout=20, max_chars=5000) -> str:
+def _pdf_to_text(data: bytes, max_chars=6000) -> str:
+    try:
+        import io
+        from pypdf import PdfReader
+        reader = PdfReader(io.BytesIO(data))
+        out = []
+        for page in reader.pages[:15]:
+            out.append(page.extract_text() or "")
+            if sum(len(x) for x in out) > max_chars:
+                break
+        return re.sub(r"\s+", " ", " ".join(out)).strip()[:max_chars]
+    except Exception:
+        return ""
+
+
+def fetch_page_text(url, timeout=20, max_chars=6000) -> str:
+    """Lädt HTML ODER PDF und gibt Text zurück (PDF via pypdf)."""
     try:
         import requests
         r = requests.get(url, timeout=timeout, headers={"User-Agent": "Mozilla/5.0"})
         r.raise_for_status()
-        ct = r.headers.get("content-type", "")
+        ct = r.headers.get("content-type", "").lower()
+        if "pdf" in ct or url.lower().split("?")[0].endswith(".pdf"):
+            return _pdf_to_text(r.content, max_chars)
         if "html" not in ct and "text" not in ct:
             return ""
         html = re.sub(r"(?is)<(script|style|noscript).*?</\1>", " ", r.text)
@@ -63,6 +113,35 @@ def fetch_page_text(url, timeout=20, max_chars=5000) -> str:
         return re.sub(r"\s+", " ", text).strip()[:max_chars]
     except Exception:
         return ""
+
+
+def _find_datasheet_pdf(url, timeout=20):
+    """Sucht auf der HTML-Seite einen Link zu einem Datenblatt-PDF (dort steht CAN meist)."""
+    try:
+        import requests
+        from urllib.parse import urljoin
+        r = requests.get(url, timeout=timeout, headers={"User-Agent": "Mozilla/5.0"})
+        r.raise_for_status()
+        if "html" not in r.headers.get("content-type", "").lower():
+            return None
+        links = re.findall(r'href=["\']([^"\']+\.pdf[^"\']*)["\']', r.text, re.I)
+        # Datenblatt/technische PDFs bevorzugen
+        pref = [l for l in links if re.search(r"(datasheet|datenblatt|technical|technische|spec|prospekt|brochure)", l, re.I)]
+        target = (pref or links)
+        return urljoin(url, target[0]) if target else None
+    except Exception:
+        return None
+
+
+def fetch_deep(url) -> str:
+    """HTML-Text + (falls vorhanden) Text des verlinkten Datenblatt-PDFs."""
+    text = fetch_page_text(url)
+    pdf = _find_datasheet_pdf(url)
+    if pdf:
+        ptext = fetch_page_text(pdf)
+        if ptext:
+            text = (text + " \n[DATENBLATT-PDF]\n " + ptext)[:9000]
+    return text
 
 
 def _client():
@@ -91,31 +170,44 @@ def enrich(page_text, image_url, pattern, cfg, client=None) -> dict:
     client = client or _client()
     if client is None:
         return {"oem": "", "modell": "", "anwendung": "", "hmi_typ": "unklar",
-                "sprache": "", "reason": "kein-key"}
+                "can_bus": "unklar", "can_reason": "", "preis_eur": None, "preis_beleg": "", "sprache": "", "reason": "kein-key"}
     model = cfg.get("harvest", {}).get("vlm_model", "claude-haiku-4-5-20251001")
     vokab = "\n".join(f"  - {k}: {v}" for k, v in HMI_VOKABULAR.items())
+    can_vokab = "\n".join(f"  - {k}: {v}" for k, v in CAN_VOKABULAR.items())
     prompt = (
-        "Du bekommst den Text einer Produktseite (BELIEBIGE Sprache) zu einer "
+        "Du bekommst den Text einer Produktseite/eines Datenblatts (BELIEBIGE Sprache) zu einer "
         "kettengetriebenen (Raupen-)Maschine. Ermittle:\n"
         "- oem: Herstellerfirma\n- modell: Modell-/Seriename\n"
         "- anwendung: Anwendungsart auf DEUTSCH (z.B. Abbruchroboter, Mini-Dumper, Stubbenfräse)\n"
         "- hmi_typ: EINE dieser Kategorien anhand des Vokabulars:\n" + vokab +
         "\n  - unklar: wenn der Text keine Steuerungs-Info enthält (NICHT raten)\n"
+        "- can_bus: Suche AKTIV nach CAN-Bus / elektrisch ansteuerbarer Hydraulik anhand:\n" + can_vokab +
+        "\n  Werte: 'CAN belegt' (CAN/CANopen/J1939 direkt genannt), 'wahrscheinlich CAN' "
+        "(IQAN/Danfoss/BODAS oder E-Hydraulik genannt), 'wahrscheinlich rein-hydraulisch' "
+        "(Gegen-Anker genannt), 'unklar' (nichts dazu im Text). Ohne CAN/E-Hydraulik ist die "
+        "Maschine NICHT nachrüstbar.\n"
+        "- can_reason: Textbeleg für can_bus (welche Stelle)\n"
+        "- preis_eur: Listenpreis/UVP als ZAHL in EUR (USD/GBP grob umrechnen), sonst null. "
+        f"Achte auf: {PREIS_HINWEISE}\n"
+        "- preis_beleg: Textstelle zum Preis (Originalangabe mit Währung)\n"
         "- sprache: Sprache der Seite\n- reason: kurze Begründung mit Textbeleg für hmi_typ\n"
-        f"\nSeitentext:\n{page_text[:4000]}\n\n"
-        'Antworte NUR JSON {"oem","modell","anwendung","hmi_typ","sprache","reason"}.')
+        f"\nSeitentext:\n{page_text[:8000]}\n\n"
+        'Antworte NUR JSON {"oem","modell","anwendung","hmi_typ","can_bus","can_reason",'
+        '"preis_eur","preis_beleg","sprache","reason"}.')
     try:
         msg = client.messages.create(model=model, max_tokens=300,
                                      messages=[{"role": "user", "content": prompt}])
         txt = "".join(b.text for b in msg.content if getattr(b, "type", "") == "text")
         d = _parse_json(txt)
         d.setdefault("hmi_typ", "unklar")
-        for k in ("oem", "modell", "anwendung", "sprache", "reason"):
+        d.setdefault("can_bus", "unklar")
+        d.setdefault("preis_eur", None)
+        for k in ("oem", "modell", "anwendung", "sprache", "reason", "can_reason", "preis_beleg"):
             d.setdefault(k, "")
         return d
     except Exception as e:
         return {"oem": "", "modell": "", "anwendung": "", "hmi_typ": "unklar",
-                "sprache": "", "reason": f"fehler:{type(e).__name__}"}
+                "can_bus": "unklar", "can_reason": "", "preis_eur": None, "preis_beleg": "", "sprache": "", "reason": f"fehler:{type(e).__name__}"}
 
 
 def default_resolver(cfg):
@@ -136,7 +228,7 @@ def default_resolver(cfg):
 def run(cfg, manifest_path="agent6_image_candidates.json",
         out_csv="agent6_enriched.csv", limit=None,
         fetcher=None, enricher=None, resolver=None, airtable=None, resolve_oem=True) -> dict:
-    fetcher = fetcher or fetch_page_text
+    fetcher = fetcher or fetch_deep
     client = _client()
     enrich_fn = enricher or (lambda text, url, pat: enrich(text, url, pat, cfg, client))
     resolve_fn = resolver if resolver is not None else (default_resolver(cfg) if resolve_oem else None)
@@ -155,29 +247,47 @@ def run(cfg, manifest_path="agent6_image_candidates.json",
 
     rows, stats = [], {"input": len(cands), "nach_seiten_dedup": len(uniq), "enriched": 0,
                        "oem_nachgeladen": 0, "pendant": 0, "stationaer": 0, "funk": 0,
-                       "fusspedal": 0, "unklar": 0, "final": 0, "airtable_updated": 0}
+                       "fusspedal": 0, "unklar": 0, "final": 0, "rows_geschrieben": 0,
+                       "airtable_updated": 0}
+    # Anreicherung EINMAL je Quell-Seite (spart Kosten)
+    page_enr = {}
     for c in uniq:
         if limit and stats["enriched"] >= limit:
             break
         page = c.get("page") or c.get("url")
         d = enrich_fn(fetcher(page) if page else "", c.get("url", ""), c.get("pattern", ""))
         stats["enriched"] += 1
+        used_page = page
         if d.get("hmi_typ") == "unklar" and page and is_dealer(page) and resolve_fn:
             oem_url = resolve_fn(d.get("oem", ""), d.get("modell", ""))
             if oem_url:
                 d2 = enrich_fn(fetcher(oem_url), c.get("url", ""), c.get("pattern", ""))
                 if d2.get("hmi_typ") != "unklar":
-                    d, page = d2, oem_url
+                    d, used_page = d2, oem_url
                     stats["oem_nachgeladen"] += 1
-        rows.append({"pattern": c.get("pattern", ""), "oem": d.get("oem", ""),
-                     "modell": d.get("modell", ""), "anwendung": d.get("anwendung", ""),
-                     "hmi_typ": d.get("hmi_typ", "unklar"), "sprache": d.get("sprache", ""),
+        page_enr[page] = (d, used_page)
+
+    # Ergebnis auf ALLE Original-Kandidaten derselben Seite verteilen -> jeder Airtable-Record wird befüllt
+    for c in cands:
+        page = c.get("page") or c.get("url")
+        if page not in page_enr:
+            continue
+        d, used_page = page_enr[page]
+        rows.append({"pattern": c.get("pattern", ""), "oem": d.get("oem") or "",
+                     "modell": d.get("modell") or "", "anwendung": d.get("anwendung") or "",
+                     "hmi_typ": d.get("hmi_typ", "unklar"), "can_bus": d.get("can_bus", "unklar"),
+                     "can_reason": d.get("can_reason", ""),
+                     "preis_eur": d.get("preis_eur"), "preis_beleg": d.get("preis_beleg", ""),
+                     "prioritaet": priorisiere(d.get("can_bus", "unklar"), d.get("preis_eur"),
+                                               d.get("hmi_typ", "unklar")),
+                     "sprache": d.get("sprache", ""),
                      "reason": d.get("reason", ""), "bild_url": c.get("url", ""),
-                     "quell_seite": page, "harvested_at": datetime.date.today().isoformat()})
+                     "quell_seite": used_page, "harvested_at": datetime.date.today().isoformat()})
+    stats["rows_geschrieben"] = len(rows)
 
     best = {}
     for r in rows:
-        key = (r["oem"].strip().lower(), r["modell"].strip().lower())
+        key = (str(r.get("oem") or "").strip().lower(), str(r.get("modell") or "").strip().lower())
         if key == ("", ""):
             best[id(r)] = r
             continue
@@ -186,13 +296,24 @@ def run(cfg, manifest_path="agent6_image_candidates.json",
     final = list(best.values())
     for r in final:
         stats[_bucket(r["hmi_typ"])] += 1
+    for r in final:
+        cb = r.get("can_bus", "unklar")
+        stats["can_belegt" if cb == "CAN belegt" else
+              "can_wahrsch" if cb == "wahrscheinlich CAN" else
+              "can_hydraulik" if "hydraulisch" in cb else "can_unklar"] = \
+            stats.get("can_belegt" if cb == "CAN belegt" else
+                      "can_wahrsch" if cb == "wahrscheinlich CAN" else
+                      "can_hydraulik" if "hydraulisch" in cb else "can_unklar", 0) + 1
+    for r in final:
+        k = "prio_" + r.get("prioritaet", "C")
+        stats[k] = stats.get(k, 0) + 1
     stats["final"] = len(final)
 
     _write_csv(final, out_csv)
     json.dump(final, open(out_csv.replace(".csv", ".json"), "w", encoding="utf-8"),
               ensure_ascii=False, indent=1)
     if airtable and getattr(airtable, "enabled", False):
-        stats["airtable_updated"] = airtable.update_enrichment(final)
+        stats["airtable_updated"] = airtable.update_enrichment(rows)   # ALLE Records befüllen
     stats["out_csv"] = out_csv
     return stats
 
@@ -211,8 +332,9 @@ def _bucket(hmi):
 
 
 def _write_csv(rows, path):
-    cols = ["pattern", "oem", "modell", "anwendung", "hmi_typ", "sprache",
-            "reason", "bild_url", "quell_seite", "harvested_at"]
+    cols = ["prioritaet", "pattern", "oem", "modell", "anwendung", "hmi_typ", "can_bus",
+            "can_reason", "preis_eur", "preis_beleg", "sprache", "reason", "bild_url",
+            "quell_seite", "harvested_at"]
     try:
         with open(path, "w", newline="", encoding="utf-8") as f:
             w = csv.DictWriter(f, fieldnames=cols)

@@ -122,10 +122,15 @@ def default_judge(cfg, patterns):
 
 def harvest(cfg, patterns, per_query=10, searcher=None, only_patterns=None,
             out_csv="agent6_text_candidates.csv", out_json="agent6_text_candidates.json",
-            gate=None, judge=None, use_llm=True) -> dict:
+            gate=None, judge=None, use_llm=True, repo=None) -> dict:
     searcher = searcher if searcher is not None else SerpTextSearcher(cfg)
     if judge is None and use_llm:
         judge = default_judge(cfg, patterns)
+    from .query_repo import queries_for_pattern
+    repo_queries = repo.load(typ="Text", patterns=only_patterns) if repo else {}
+    if repo_queries:
+        print(f"  Query-Repo: {sum(len(v) for v in repo_queries.values())} aktive Text-Queries")
+    q_stats = {}
     seen, rows = set(), []
     stats = {"searched": 0, "found": 0, "dup": 0, "judged": 0, "llm_rejected": 0,
              "new": 0, "strong": 0, "score_sum": 0, "by_pattern": {}}
@@ -137,13 +142,18 @@ def harvest(cfg, patterns, per_query=10, searcher=None, only_patterns=None,
             stats["by_pattern"][code] = "übersprungen (Bild-Pattern)"
             continue
         p_new = 0
-        for q in build_spec_queries(pat):
+        _entries = (repo_queries or {}).get(code) or [
+            {"query": q, "negativ": "", "sprache": "", "record_id": None}
+            for q in build_spec_queries(pat)]
+        for entry in _entries:
+            q, rid = entry["query"], entry.get("record_id")
+            q_found = q_new = 0
             stats["searched"] += 1
             for res in searcher.search(q, n=per_query):
                 url = res.get("url")
                 if not url or is_junk(url):
                     continue
-                stats["found"] += 1
+                stats["found"] += 1; q_found += 1
                 key = _domain(url)
                 if key in seen:
                     stats["dup"] += 1
@@ -175,7 +185,9 @@ def harvest(cfg, patterns, per_query=10, searcher=None, only_patterns=None,
                 stats["score_sum"] += sc
                 if strong:
                     stats["strong"] += 1
-                p_new += 1
+                p_new += 1; q_new += 1
+            if rid:
+                q_stats[rid] = (q_new, q_found)
         stats["by_pattern"][code] = p_new
 
     _write_csv(rows, out_csv)
@@ -183,6 +195,8 @@ def harvest(cfg, patterns, per_query=10, searcher=None, only_patterns=None,
         json.dump(rows, open(out_json, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     except Exception:
         pass
+    if repo and q_stats:
+        stats["queries_bewertet"] = repo.report(q_stats)
     stats["out_csv"] = out_csv
     stats.update((gate or quality_gate)(stats))
     return stats
@@ -235,6 +249,8 @@ def main():
     ap.add_argument("--no-judge", dest="no_judge", action="store_true",
                     help="LLM-Urteilsschicht aus (nur Keyword) — schneller/gratis, aber mehr Rauschen")
     ap.add_argument("--out", default="agent6_text_candidates.csv")
+    ap.add_argument("--no-repo", dest="no_repo", action="store_true",
+                    help="Query-Repo (Airtable) ignorieren, nur patterns.json nutzen")
     args = ap.parse_args()
     cfg = load_config(args.config)
     if args.patterns_file:
@@ -242,8 +258,13 @@ def main():
     else:
         patterns = M.read_patterns(M.open_master(cfg), cfg)
     only = [p.strip() for p in args.patterns.split(",")] if args.patterns else None
+    repo = None
+    if not args.no_repo:
+        from .query_repo import QueryRepo
+        r = QueryRepo()
+        repo = r if r.enabled else None
     res = harvest(cfg, patterns, per_query=args.per_query, only_patterns=only,
-                  out_csv=args.out, use_llm=not args.no_judge)
+                  out_csv=args.out, use_llm=not args.no_judge, repo=repo)
     print("TEXT-HARVEST:", res)
     if res.get("STOP"):
         print("  ⛔ STOP:", res["STOP"])
