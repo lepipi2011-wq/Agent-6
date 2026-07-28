@@ -33,7 +33,10 @@ AIRTABLE_TABLE_DEFAULT = "Review"
 
 _JUNK_DOMAINS = ("wikipedia.", "linkedin.", "pinterest.", "youtube.", "facebook.",
                  "instagram.", "amazon.", "ebay.", "alamy.", "shutterstock.",
-                 "istockphoto.", "gettyimages.", "dreamstime.", "123rf.", "mascus.")
+                 "istockphoto.", "gettyimages.", "dreamstime.", "123rf.", "mascus.",
+                 # Bild-CDNs / Thumbnails: dahinter steckt keine lesbare Produktseite
+                 "ytimg.", "ggpht.", "pinimg.", "fbcdn.", "twimg.", "i.redd.",
+                 "wp.com", "staticflickr.", "cloudfront.", "blogspot.")
 
 
 # --------------------------------------------------------------- Retrieval
@@ -184,6 +187,11 @@ class AirtableWriter:
             updates.append({"id": rid,
                             "fields": {col: (r.get(src) if r.get(src) is not None else "")
                                        for col, src in field_map.items()}})
+        # Airtable erlaubt einen Record nur EINMAL pro Request -> pro id zusammenfassen
+        by_id = {}
+        for u in updates:
+            by_id[u["id"]] = u
+        updates = list(by_id.values())
         print(f"  Airtable: {len(updates)} Records zugeordnet, {unmatched} ohne Treffer "
               f"(von {len(by_url)} Records in der Base).")
         done = 0
@@ -224,7 +232,14 @@ class AirtableWriter:
                 "OEM": r.get("oem", ""), "Modell": r.get("modell", ""),
                 "Anwendungsart": r.get("anwendung", ""), "HMI-Typ": r.get("hmi_typ", "unklar"),
                 "CAN-Bus": r.get("can_bus", "unklar"),
-                "Preis EUR": r.get("preis_eur"), "Priorität": r.get("prioritaet", "")}})
+                "Preis EUR": r.get("preis_eur"), "Priorität": r.get("prioritaet", ""),
+                "Claude-Urteil": r.get("claude_urteil", ""),
+                "Claude-Konfidenz": r.get("claude_konfidenz"),
+                "Claude-Begründung": r.get("claude_begruendung", "")}})
+        by_id = {}
+        for u in updates:
+            by_id[u["id"]] = u
+        updates = list(by_id.values())
         print(f"  Airtable: {len(updates)} Records zugeordnet, {unmatched} ohne Treffer "
               f"(von {len(by_url)} Records in der Base).")
         done = 0
@@ -297,6 +312,11 @@ def harvest(cfg, patterns, per_pattern=15, searcher=None, writer=None,
     repo_queries = repo.load(typ="Bild", patterns=only_patterns) if repo else {}
     if repo_queries:
         print(f"  Query-Repo: {sum(len(v) for v in repo_queries.values())} aktive Bild-Queries")
+        if only_patterns is None:
+            # Kein --patterns angegeben -> das Repo bestimmt, welche Patterns laufen.
+            # So kommt ein in Airtable aktiviertes Pattern automatisch beim naechsten Lauf dran.
+            only_patterns = sorted(repo_queries.keys())
+            print(f"  (kein --patterns -> alle aktiven Repo-Patterns: {', '.join(only_patterns)})")
     q_stats = {}
     known = writer.existing_urls() if hasattr(writer, "existing_urls") else set()
     seen = set(known)

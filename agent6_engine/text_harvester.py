@@ -130,6 +130,9 @@ def harvest(cfg, patterns, per_query=10, searcher=None, only_patterns=None,
     repo_queries = repo.load(typ="Text", patterns=only_patterns) if repo else {}
     if repo_queries:
         print(f"  Query-Repo: {sum(len(v) for v in repo_queries.values())} aktive Text-Queries")
+        if only_patterns is None:
+            only_patterns = sorted(repo_queries.keys())
+            print(f"  (kein --patterns -> alle aktiven Repo-Patterns: {', '.join(only_patterns)})")
     q_stats = {}
     seen, rows = set(), []
     stats = {"searched": 0, "found": 0, "dup": 0, "judged": 0, "llm_rejected": 0,

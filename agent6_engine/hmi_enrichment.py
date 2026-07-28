@@ -52,7 +52,9 @@ PREIS_HINWEISE = ("Preis, Listenpreis, UVP, ab EUR, zzgl. MwSt / price, list pri
 PREIS_SCHWELLE_EUR = 10000
 
 
-def priorisiere(can_bus, preis_eur, hmi_typ) -> str:
+def priorisiere(can_bus, preis_eur, hmi_typ, ist_ziel=True) -> str:
+    if not ist_ziel:
+        return "X"                       # ausser Scope -> nicht an den Vertrieb
     """A = CAN + Preis ueber Schwelle (bester Fit), B = CAN oder Preis ok, C = hydraulisch/guenstig.
     Hydraulische bleiben drin (Pierres Vorgabe), CAN hat aber Vorrang."""
     can_ok = can_bus in ("CAN belegt", "wahrscheinlich CAN")
@@ -84,7 +86,8 @@ def is_dealer(url) -> bool:
 
 def _pdf_to_text(data: bytes, max_chars=6000) -> str:
     try:
-        import io
+        import io, logging
+        logging.getLogger("pypdf").setLevel(logging.ERROR)   # "Impossible to decode"-Warnungen stumm
         from pypdf import PdfReader
         reader = PdfReader(io.BytesIO(data))
         out = []
@@ -166,7 +169,7 @@ def _parse_json(txt):
     return {}
 
 
-def enrich(page_text, image_url, pattern, cfg, client=None) -> dict:
+def enrich(page_text, image_url, pattern, cfg, client=None, lessons="") -> dict:
     client = client or _client()
     if client is None:
         return {"oem": "", "modell": "", "anwendung": "", "hmi_typ": "unklar",
@@ -175,8 +178,11 @@ def enrich(page_text, image_url, pattern, cfg, client=None) -> dict:
     vokab = "\n".join(f"  - {k}: {v}" for k, v in HMI_VOKABULAR.items())
     can_vokab = "\n".join(f"  - {k}: {v}" for k, v in CAN_VOKABULAR.items())
     prompt = (
-        "Du bekommst den Text einer Produktseite/eines Datenblatts (BELIEBIGE Sprache) zu einer "
-        "kettengetriebenen (Raupen-)Maschine. Ermittle:\n"
+        "Du bekommst den Text einer Produktseite/eines Datenblatts (BELIEBIGE Sprache). "
+        "Pruefe ZUERST, ob es ueberhaupt um eine KETTENGETRIEBENE (Raupen-)Maschine geht "
+        "(Bagger, Lader, Dumper, Roboter etc. auf Ketten/Raupen). Ermittle:\n"
+        "- ist_zielmaschine: true nur wenn es eine kettengetriebene Maschine ist; false bei "
+        "allem anderen (z.B. Dosieranlage, Rad-Maschine, Bauteil, Nachrichtenartikel, leere Seite)\n"
         "- oem: Herstellerfirma\n- modell: Modell-/Seriename\n"
         "- anwendung: Anwendungsart auf DEUTSCH (z.B. Abbruchroboter, Mini-Dumper, Stubbenfräse)\n"
         "- hmi_typ: EINE dieser Kategorien anhand des Vokabulars:\n" + vokab +
@@ -191,14 +197,24 @@ def enrich(page_text, image_url, pattern, cfg, client=None) -> dict:
         f"Achte auf: {PREIS_HINWEISE}\n"
         "- preis_beleg: Textstelle zum Preis (Originalangabe mit Währung)\n"
         "- sprache: Sprache der Seite\n- reason: kurze Begründung mit Textbeleg für hmi_typ\n"
-        f"\nSeitentext:\n{page_text[:8000]}\n\n"
-        'Antworte NUR JSON {"oem","modell","anwendung","hmi_typ","can_bus","can_reason",'
-        '"preis_eur","preis_beleg","sprache","reason"}.')
+        "- claude_urteil: DEIN eigenes Scope-Urteil, unabhaengig vom Pattern-Vorschlag: "
+        "'In-Scope' (kettengetrieben, RC-nachruestbar, im Zielsegment), 'Out-of-Scope' "
+        "(Raeder/Bauteil/keine Zielmaschine), 'Unsicher' (Quelle zu duenn)\n"
+        "- claude_konfidenz: wie sicher du bist (0.0-1.0)\n"
+        "- claude_begruendung: 1 Satz, warum dieses Urteil\n"
+        + (lessons or "") +
+        f"\n\nSeitentext:\n{page_text[:8000]}\n\n"
+        'Antworte NUR JSON {"ist_zielmaschine","oem","modell","anwendung","hmi_typ","can_bus",'
+        '"can_reason","preis_eur","preis_beleg","sprache","reason"}.')
     try:
         msg = client.messages.create(model=model, max_tokens=300,
                                      messages=[{"role": "user", "content": prompt}])
         txt = "".join(b.text for b in msg.content if getattr(b, "type", "") == "text")
         d = _parse_json(txt)
+        d.setdefault("ist_zielmaschine", True)
+        d.setdefault("claude_urteil", "Unsicher")
+        d.setdefault("claude_konfidenz", 0.0)
+        d.setdefault("claude_begruendung", "")
         d.setdefault("hmi_typ", "unklar")
         d.setdefault("can_bus", "unklar")
         d.setdefault("preis_eur", None)
@@ -206,8 +222,10 @@ def enrich(page_text, image_url, pattern, cfg, client=None) -> dict:
             d.setdefault(k, "")
         return d
     except Exception as e:
-        return {"oem": "", "modell": "", "anwendung": "", "hmi_typ": "unklar",
-                "can_bus": "unklar", "can_reason": "", "preis_eur": None, "preis_beleg": "", "sprache": "", "reason": f"fehler:{type(e).__name__}"}
+        return {"ist_zielmaschine": True, "oem": "", "modell": "", "anwendung": "",
+                "hmi_typ": "unklar", "can_bus": "unklar", "can_reason": "", "preis_eur": None,
+                "preis_beleg": "", "sprache": "", "reason": f"fehler:{type(e).__name__}",
+                "claude_urteil": "Unsicher", "claude_konfidenz": 0.0, "claude_begruendung": ""}
 
 
 def default_resolver(cfg):
@@ -227,15 +245,19 @@ def default_resolver(cfg):
 
 def run(cfg, manifest_path="agent6_image_candidates.json",
         out_csv="agent6_enriched.csv", limit=None,
-        fetcher=None, enricher=None, resolver=None, airtable=None, resolve_oem=True) -> dict:
+        fetcher=None, enricher=None, resolver=None, airtable=None, resolve_oem=True,
+        lessons="") -> dict:
     fetcher = fetcher or fetch_deep
     client = _client()
-    enrich_fn = enricher or (lambda text, url, pat: enrich(text, url, pat, cfg, client))
+    enrich_fn = enricher or (lambda text, url, pat: enrich(text, url, pat, cfg, client, lessons))
     resolve_fn = resolver if resolver is not None else (default_resolver(cfg) if resolve_oem else None)
-    try:
-        cands = json.load(open(manifest_path, encoding="utf-8"))
-    except Exception:
-        return {"error": f"Manifest nicht lesbar: {manifest_path}"}
+    if isinstance(manifest_path, list):
+        cands = manifest_path                      # direkt uebergebene Kandidaten
+    else:
+        try:
+            cands = json.load(open(manifest_path, encoding="utf-8"))
+        except Exception:
+            return {"error": f"Manifest nicht lesbar: {manifest_path}"}
 
     seen_pages, uniq = set(), []
     for c in cands:
@@ -257,6 +279,8 @@ def run(cfg, manifest_path="agent6_image_candidates.json",
         page = c.get("page") or c.get("url")
         d = enrich_fn(fetcher(page) if page else "", c.get("url", ""), c.get("pattern", ""))
         stats["enriched"] += 1
+        if not d.get("ist_zielmaschine", True):
+            d["anwendung"] = "AUSSER SCOPE: " + (d.get("anwendung") or "keine Raupenmaschine")
         used_page = page
         if d.get("hmi_typ") == "unklar" and page and is_dealer(page) and resolve_fn:
             oem_url = resolve_fn(d.get("oem", ""), d.get("modell", ""))
@@ -278,11 +302,16 @@ def run(cfg, manifest_path="agent6_image_candidates.json",
                      "hmi_typ": d.get("hmi_typ", "unklar"), "can_bus": d.get("can_bus", "unklar"),
                      "can_reason": d.get("can_reason", ""),
                      "preis_eur": d.get("preis_eur"), "preis_beleg": d.get("preis_beleg", ""),
+                     "claude_urteil": d.get("claude_urteil", "Unsicher"),
+                     "claude_konfidenz": d.get("claude_konfidenz", 0.0),
+                     "claude_begruendung": d.get("claude_begruendung", ""),
                      "prioritaet": priorisiere(d.get("can_bus", "unklar"), d.get("preis_eur"),
-                                               d.get("hmi_typ", "unklar")),
+                                               d.get("hmi_typ", "unklar"),
+                                               d.get("ist_zielmaschine", True)),
                      "sprache": d.get("sprache", ""),
                      "reason": d.get("reason", ""), "bild_url": c.get("url", ""),
                      "quell_seite": used_page, "harvested_at": datetime.date.today().isoformat()})
+    stats["ausser_scope"] = sum(1 for r in rows if r.get("prioritaet") == "X")
     stats["rows_geschrieben"] = len(rows)
 
     best = {}
@@ -297,7 +326,7 @@ def run(cfg, manifest_path="agent6_image_candidates.json",
     for r in final:
         stats[_bucket(r["hmi_typ"])] += 1
     for r in final:
-        cb = r.get("can_bus", "unklar")
+        cb = r.get("can_bus") or "unklar"
         stats["can_belegt" if cb == "CAN belegt" else
               "can_wahrsch" if cb == "wahrscheinlich CAN" else
               "can_hydraulik" if "hydraulisch" in cb else "can_unklar"] = \
@@ -332,7 +361,8 @@ def _bucket(hmi):
 
 
 def _write_csv(rows, path):
-    cols = ["prioritaet", "pattern", "oem", "modell", "anwendung", "hmi_typ", "can_bus",
+    cols = ["prioritaet", "claude_urteil", "claude_konfidenz", "claude_begruendung",
+            "pattern", "oem", "modell", "anwendung", "hmi_typ", "can_bus",
             "can_reason", "preis_eur", "preis_beleg", "sprache", "reason", "bild_url",
             "quell_seite", "harvested_at"]
     try:
@@ -351,19 +381,43 @@ def main():
     ap = argparse.ArgumentParser(description="HMI-/Anwendungs-Anreicherung (Stufe 2)")
     ap.add_argument("--config", default="config.yaml")
     ap.add_argument("--manifest", default="agent6_image_candidates.json")
+    ap.add_argument("--from-airtable", dest="from_airtable", action="store_true",
+                    help="Kandidaten aus Airtable holen (alle Records ohne HMI-Typ) statt aus dem Manifest")
     ap.add_argument("--out", default="agent6_enriched.csv")
     ap.add_argument("--limit", type=int, default=None)
     ap.add_argument("--no-resolve", dest="no_resolve", action="store_true",
                     help="OEM-Seite bei Händlerquellen NICHT nachladen")
     ap.add_argument("--airtable", action="store_true", help="Ergebnisse zurück in Airtable schreiben")
+    ap.add_argument("--lessons", default=None,
+                    help="CSV/JSON mit bestaetigten Verdikten -> Lehrbeispiele in den Prompt (Weg 1)")
     args = ap.parse_args()
+    lessons = ""
+    if args.lessons:
+        import os as _os
+        if not _os.path.exists(args.lessons):
+            print(f"  ⚠ Lessons-Datei nicht gefunden: {args.lessons} — Lauf geht OHNE Lehrbeispiele weiter.")
+        else:
+            try:
+                from .scope_score import load_verdikt_rows, build_lessons
+                lessons = build_lessons(load_verdikt_rows(args.lessons))
+                print(f"  Lehrbeispiele geladen: {lessons.count(chr(10)+'  - ')} Verdikte im Prompt")
+            except Exception as e:
+                print(f"  ⚠ Lessons konnten nicht geladen werden ({e}) — Lauf geht OHNE weiter.")
     cfg = load_config(args.config)
     at = None
-    if args.airtable:
+    if args.airtable or args.from_airtable:
         from .image_search_harvester import AirtableWriter
         at = AirtableWriter(cfg=cfg)
-    res = run(cfg, manifest_path=args.manifest, out_csv=args.out, limit=args.limit,
-              airtable=at, resolve_oem=not args.no_resolve)
+    source = args.manifest
+    if args.from_airtable:
+        if not (at and at.enabled):
+            print("AIRTABLE_TOKEN fehlt — kann Kandidaten nicht laden."); return
+        source = at.candidates_missing("HMI-Typ", limit=args.limit)
+        print(f"  Aus Airtable geladen: {len(source)} Records ohne HMI-Typ")
+    res = run(cfg, manifest_path=source, out_csv=args.out,
+              limit=None if args.from_airtable else args.limit,
+              airtable=(at if args.airtable else None), resolve_oem=not args.no_resolve,
+              lessons=lessons)
     print("HMI-ANREICHERUNG:", res)
 
 
