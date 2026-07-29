@@ -104,7 +104,10 @@ def fetch_page_text(url, timeout=20, max_chars=6000) -> str:
     """Lädt HTML ODER PDF und gibt Text zurück (PDF via pypdf)."""
     try:
         import requests
-        r = requests.get(url, timeout=timeout, headers={"User-Agent": "Mozilla/5.0"})
+        r = requests.get(url, timeout=timeout, headers={
+            "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                           "(KHTML, like Gecko) Chrome/120.0 Safari/537.36"),
+            "Accept-Language": "de,en;q=0.9"})
         r.raise_for_status()
         ct = r.headers.get("content-type", "").lower()
         if "pdf" in ct or url.lower().split("?")[0].endswith(".pdf"):
@@ -123,7 +126,10 @@ def _find_datasheet_pdf(url, timeout=20):
     try:
         import requests
         from urllib.parse import urljoin
-        r = requests.get(url, timeout=timeout, headers={"User-Agent": "Mozilla/5.0"})
+        r = requests.get(url, timeout=timeout, headers={
+            "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                           "(KHTML, like Gecko) Chrome/120.0 Safari/537.36"),
+            "Accept-Language": "de,en;q=0.9"})
         r.raise_for_status()
         if "html" not in r.headers.get("content-type", "").lower():
             return None
@@ -137,13 +143,36 @@ def _find_datasheet_pdf(url, timeout=20):
 
 
 def fetch_deep(url) -> str:
-    """HTML-Text + (falls vorhanden) Text des verlinkten Datenblatt-PDFs."""
-    text = fetch_page_text(url)
-    pdf = _find_datasheet_pdf(url)
-    if pdf:
-        ptext = fetch_page_text(pdf)
-        if ptext:
-            text = (text + " \n[DATENBLATT-PDF]\n " + ptext)[:9000]
+    """HTML-Text + (falls vorhanden) Text des verlinkten Datenblatt-PDFs.
+    Robust: das PDF ist NUR ein Bonus und kann den HTML-Text nie ersetzen/loeschen.
+    Liefert die tiefe URL nichts (404/leer), wird die Domain-Startseite versucht."""
+    text = ""
+    try:
+        text = fetch_page_text(url) or ""
+    except Exception:
+        text = ""
+    # Fallback: tiefe Produkt-URL tot -> Startseite der Domain lesen
+    if len(text) < 200:
+        try:
+            from urllib.parse import urlparse
+            p = urlparse(url)
+            if p.scheme and p.netloc:
+                root = f"{p.scheme}://{p.netloc}"
+                if root.rstrip("/") != url.rstrip("/"):
+                    alt = fetch_page_text(root) or ""
+                    if len(alt) > len(text):
+                        text = alt
+        except Exception:
+            pass
+    # Datenblatt-PDF nur ZUSAETZLICH anhaengen (nie ersetzen)
+    try:
+        pdf = _find_datasheet_pdf(url)
+        if pdf:
+            ptext = fetch_page_text(pdf) or ""
+            if ptext:
+                text = (text + " \n[DATENBLATT-PDF]\n " + ptext)[:9000]
+    except Exception:
+        pass
     return text
 
 
@@ -207,7 +236,7 @@ def enrich(page_text, image_url, pattern, cfg, client=None, lessons="") -> dict:
         'Antworte NUR JSON {"ist_zielmaschine","oem","modell","anwendung","hmi_typ","can_bus",'
         '"can_reason","preis_eur","preis_beleg","sprache","reason"}.')
     try:
-        msg = client.messages.create(model=model, max_tokens=300,
+        msg = client.messages.create(model=model, max_tokens=700,
                                      messages=[{"role": "user", "content": prompt}])
         txt = "".join(b.text for b in msg.content if getattr(b, "type", "") == "text")
         d = _parse_json(txt)
@@ -230,17 +259,30 @@ def enrich(page_text, image_url, pattern, cfg, client=None, lessons="") -> dict:
 
 def default_resolver(cfg):
     from .text_harvester import SerpTextSearcher, source_score
+    from .image_search_harvester import is_junk as _is_junk
     searcher = SerpTextSearcher(cfg)
 
-    def _resolve(oem, modell):
-        if not oem:
+    def _resolve(oem, modell, seed=""):
+        # Suchbegriff: bevorzugt OEM+Modell, sonst der Bildtitel/die Query
+        begriff = (f"{oem} {modell}".strip() or seed).strip()
+        if not begriff:
             return None
-        for res in searcher.search(f"{oem} {modell} Steuerung control", n=6):
-            u = res.get("url", "")
-            if u and not is_dealer(u) and source_score(u) >= 3:
-                return u
+        for q in (f"{begriff} official manufacturer specifications",
+                  f"{begriff} Hersteller Datenblatt"):
+            for res in searcher.search(q, n=6):
+                u = res.get("url", "")
+                if u and not is_dealer(u) and not _is_junk(u) and source_score(u) >= 3:
+                    return u
         return None
     return _resolve
+
+
+def _call_resolver(fn, oem, modell, seed):
+    """Ruft den Resolver seed-tolerant (aeltere Resolver kennen kein seed)."""
+    try:
+        return fn(oem, modell, seed=seed)
+    except TypeError:
+        return fn(oem, modell)
 
 
 def run(cfg, manifest_path="agent6_image_candidates.json",
@@ -273,18 +315,42 @@ def run(cfg, manifest_path="agent6_image_candidates.json",
                        "airtable_updated": 0}
     # Anreicherung EINMAL je Quell-Seite (spart Kosten)
     page_enr = {}
+    from .image_search_harvester import is_junk
     for c in uniq:
         if limit and stats["enriched"] >= limit:
             break
         page = c.get("page") or c.get("url")
+        seed = (c.get("title") or c.get("query") or "").strip()
+        junk = (not page) or is_junk(page)
+        # Junk-Quelle: NICHT sofort aufgeben, sondern per Bildtitel die OEM-Seite suchen
+        if junk and resolve_fn and seed:
+            oem_url = _call_resolver(resolve_fn, "", "", seed)
+            if oem_url:
+                d = enrich_fn(fetcher(oem_url), c.get("url", ""), c.get("pattern", ""))
+                if not d.get("ist_zielmaschine", True):
+                    d["anwendung"] = "AUSSER SCOPE: " + (d.get("anwendung") or "keine Raupenmaschine")
+                page_enr[page] = (d, oem_url)
+                stats["enriched"] += 1
+                stats["oem_nachgeladen"] += 1
+                continue
+        if junk:
+            page_enr[page] = ({"ist_zielmaschine": False, "oem": "", "modell": "",
+                               "anwendung": "AUSSER SCOPE: unbrauchbare Quelle",
+                               "hmi_typ": "unklar", "can_bus": "unklar", "can_reason": "",
+                               "preis_eur": None, "preis_beleg": "", "sprache": "", "reason": "Junk-Quelle",
+                               "claude_urteil": "Out-of-Scope", "claude_konfidenz": 0.9,
+                               "claude_begruendung": "Quelle ohne Produktseite, keine OEM-Seite auffindbar"}, page)
+            stats["enriched"] += 1
+            continue
         d = enrich_fn(fetcher(page) if page else "", c.get("url", ""), c.get("pattern", ""))
         stats["enriched"] += 1
         if not d.get("ist_zielmaschine", True):
             d["anwendung"] = "AUSSER SCOPE: " + (d.get("anwendung") or "keine Raupenmaschine")
         used_page = page
-        if d.get("hmi_typ") == "unklar" and page and is_dealer(page) and resolve_fn:
-            oem_url = resolve_fn(d.get("oem", ""), d.get("modell", ""))
-            if oem_url:
+        # OEM-Seite nachladen bei unklar (Haendler ODER generell), Titel als Zusatz-Seed
+        if d.get("hmi_typ") == "unklar" and resolve_fn:
+            oem_url = _call_resolver(resolve_fn, d.get("oem", ""), d.get("modell", ""), seed)
+            if oem_url and oem_url != page:
                 d2 = enrich_fn(fetcher(oem_url), c.get("url", ""), c.get("pattern", ""))
                 if d2.get("hmi_typ") != "unklar":
                     d, used_page = d2, oem_url

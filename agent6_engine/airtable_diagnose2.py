@@ -45,7 +45,7 @@ FELDER = [
     ("Anwendungsart", "TEST"),
     ("HMI-Typ", "unklar"),
     ("CAN-Bus", "unklar"),
-    ("Preis EUR", 12345),
+    ("Preis-EUR", 12345),
     ("Priorität", "B"),
     ("Dedup-Status", "neu"),
     ("Pipedrive-Firma", "TEST"),
@@ -84,7 +84,7 @@ print(f"ERGEBNIS: {len(ok)}/{len(FELDER)} Spalten OK.")
 if fehler:
     print("FEHLENDE / FALSCHE SPALTEN — bitte in Review anlegen/korrigieren:")
     for name, msg in fehler:
-        typ = {"Preis EUR": "Number", "Claude-Konfidenz": "Number",
+        typ = {"Preis-EUR": "Number", "Claude-Konfidenz": "Number",
                "Harvest-Datum": "Date"}.get(name, "Single line text / Single select")
         print(f"  - {name}   (Typ: {typ})   [{msg[:60]}]")
 else:

@@ -62,7 +62,7 @@ class SerpImageSearcher:
                 url = it.get("original") or it.get("thumbnail")
                 if url:
                     out.append({"url": url, "page": it.get("link", ""),
-                                "source": it.get("source", "")})
+                                "source": it.get("source", ""), "title": it.get("title", "")})
             return out
         except Exception:
             return []
@@ -159,7 +159,9 @@ class AirtableWriter:
                 page = f"{p.scheme}://{p.netloc}" if p.scheme and p.netloc else url
             _pv = str(f.get("Pattern-Vorschlag", "") or "").split()
             pat = _pv[0] if _pv else ""
-            out.append({"url": url, "page": page, "pattern": pat})
+            titel = str(f.get("Notizen", "") or "").replace("Bildtitel:", "").strip()
+            out.append({"url": url, "page": page, "pattern": pat,
+                        "title": titel, "query": str(f.get("Query", "") or "")})
             if limit and len(out) >= limit:
                 break
         return out
@@ -232,7 +234,7 @@ class AirtableWriter:
                 "OEM": r.get("oem", ""), "Modell": r.get("modell", ""),
                 "Anwendungsart": r.get("anwendung", ""), "HMI-Typ": r.get("hmi_typ", "unklar"),
                 "CAN-Bus": r.get("can_bus", "unklar"),
-                "Preis EUR": r.get("preis_eur"), "Priorität": r.get("prioritaet", ""),
+                "Preis-EUR": r.get("preis_eur"), "Priorität": r.get("prioritaet", ""),
                 "Claude-Urteil": r.get("claude_urteil", ""),
                 "Claude-Konfidenz": r.get("claude_konfidenz"),
                 "Claude-Begründung": r.get("claude_begruendung", "")}})
@@ -286,6 +288,7 @@ def build_record(cand, pattern_code):
         "Query": cand.get("query", ""),
         "Quelle": cand.get("source") or _domain(cand.get("page") or cand["url"]),
         "Quell-Seite": cand.get("page", ""),
+        "Notizen": ("Bildtitel: " + cand.get("title", "")) if cand.get("title") else "",
         "Status": "Neu",
         "Harvest-Datum": datetime.date.today().isoformat(),
     }
@@ -350,6 +353,7 @@ def harvest(cfg, patterns, per_pattern=15, searcher=None, writer=None,
                     continue
                 seen.add(url)
                 cand = {"url": url, "page": res.get("page", ""), "source": res.get("source", ""),
+                        "title": res.get("title", ""),
                         "query": q, "id": f"{code}__{_domain(url)}__{len(seen)}"}
                 all_records.append(build_record(cand, code))
                 manifest.append({"url": url, "pattern": code, "query": q,
