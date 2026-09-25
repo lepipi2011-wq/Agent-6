@@ -39,6 +39,25 @@ def _domain(url):
     return f"https://{host}"
 
 
+_EXCLUDE_MARKERS = ("ausschluss", "adjacent", "distributor", "exklusion", "umfirmiert")
+_LEAD_MARKERS = ("crawler-lead",)
+
+
+def scope_from_label(label) -> str:
+    """Spalte 22 'Label / Scope' -> {'exclude','lead','open',''}.
+    Normalisiert uneinheitliche Schreibweisen (Emoji, '(Triage)', Varianten)."""
+    t = str(label or "").strip().lower()
+    if not t:
+        return ""
+    if any(m in t for m in _EXCLUDE_MARKERS):
+        return "exclude"
+    if any(m in t for m in _LEAD_MARKERS):
+        return "lead"
+    if "offen" in t or "prüfen" in t or "pruefen" in t or "dedup" in t:
+        return "open"
+    return ""
+
+
 def _pattern_from_segment(seg):
     m = re.match(r"\s*(P\d+)\b", str(seg or ""))
     return m.group(1) if m else None
@@ -77,6 +96,7 @@ class Seed:
     domain: str | None
     link: str | None
     row: int
+    scope: str = ""          # aus Spalte 'Label / Scope': exclude|lead|open|""
 
 
 @dataclass
@@ -128,6 +148,7 @@ def read_seeds(wb, cfg, patterns: dict[str, Pattern]) -> list[Seed]:
     c_link = _resolve(cm, "link")
     c_land = _resolve(cm, "land")
     c_pat = _resolve(cm, "pattern")  # in reconciled-Version evtl. vorhanden
+    c_label = _resolve(cm, "label") or _resolve(cm, "scope")
 
     # OEM-Name -> Pattern aus Pattern-DB-Kandidaten (Fallback-Lookup)
     cand_index = {}
@@ -152,15 +173,38 @@ def read_seeds(wb, cfg, patterns: dict[str, Pattern]) -> list[Seed]:
                 if key in non or non in key:
                     pat = code
                     break
+        label = ws.cell(r, c_label).value if c_label else None
         seeds.append(Seed(oem=str(oem).strip(),
                           pattern=(str(pat).strip() if pat else None),
                           segment=str(seg).strip() if seg else None,
                           land=str(land).strip() if land else None,
                           domain=_domain(link), link=str(link).strip() if link else None,
-                          row=r))
+                          row=r, scope=scope_from_label(label)))
     return seeds
 
 
 def open_master(cfg):
     # read_only=False: wir nutzen wahlfreien .cell()-Zugriff; read_only macht das O(n^2).
     return load_workbook(cfg["master"]["path"], read_only=False, data_only=True)
+
+
+# ---------------------------------------------------------------- patterns.json (für Cron/Automatik)
+class PatternLite:
+    """Leichtgewichtiges Pattern aus patterns.json — entkoppelt Harvester vom großen Master."""
+    def __init__(self, d):
+        self.code = d.get("code", "")
+        self.img_query = d.get("img_query", "")
+        self.text_terms = d.get("text_terms", "")
+        self.segment = d.get("segment", "")
+        self.ref_oem = d.get("ref_oem", "")
+        self.method = d.get("method", "Beides")
+        self.exclude = d.get("exclude", "")
+        self.text_query = d.get("text_query", "")
+
+
+def load_patterns_json(path):
+    """-> {code: PatternLite}. Für Läufe ohne geöffneten Master (z.B. GitHub Actions)."""
+    import json
+    with open(path, encoding="utf-8") as f:
+        data = json.load(f)
+    return {d["code"]: PatternLite(d) for d in data if d.get("code")}

@@ -166,6 +166,9 @@ def download(url, dest, cfg):
                     w, h = im.size
                     if min(w, h) < minpx:                      # zu klein -> Logo/Icon
                         return False
+                    maxpx = cfg["harvest"].get("max_image_px", 6000)
+                    if maxpx and max(w, h) > maxpx:            # absurd groß -> Bomb/kein Produktfoto
+                        return False
                     if max(w, h) / max(1, min(w, h)) > 4:      # Banner-Streifen
                         return False
                 except Exception:

@@ -13,7 +13,8 @@ DEFAULTS = {
     "harvest": {"dry_run": True, "images_per_oem": 12, "oem_direct_first": True,
                 "max_pages_per_site": 6, "countries": [], "patterns": [], "max_oems": 0,
                 "normalize_classes": True,
-                "vlm_filter": False, "min_image_px": 300,
+                "resume": True,
+                "vlm_filter": False, "min_image_px": 300, "max_image_px": 6000,
                 "vlm_model": "claude-haiku-4-5-20251001",
                 "request_timeout": 15,
                 "user_agent": "Agent6-ImageHarvester/1.0 (research; respects robots)",
@@ -38,6 +39,12 @@ def _deep_merge(base, over):
 
 
 def load_config(path: str | None = None) -> dict:
+    # .env laden (falls vorhanden), damit API-Keys als Umgebungsvariablen bereitstehen.
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+    except Exception:
+        pass
     user = {}
     if path and os.path.exists(path):
         try:

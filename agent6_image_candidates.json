@@ -1,0 +1,30 @@
+[
+ {
+  "url": "https://www.futurefarming.com/app/uploads/2022/05/IMG_IMG_20220420_101106.jpg",
+  "pattern": "P16",
+  "query": "tracked weeding robot CAN tethered autonomous vineyard orchard",
+  "source": "Future Farming",
+  "page": "https://www.futurefarming.com/tech-in-focus/field-robots/two-year-test-with-slopehelper-vineyard-robot-in-slovenia/"
+ },
+ {
+  "url": "https://blog.landscapeprofessionals.org/wp-content/uploads/2020/07/IMG_3665.jpg",
+  "pattern": "P16",
+  "query": "tracked mower walk behind",
+  "source": "The Edge from the National Association of Landscape Professionals",
+  "page": "https://blog.landscapeprofessionals.org/conquering-slopes-with-remote-controlled-mowers/"
+ },
+ {
+  "url": "https://hips.hearstapps.com/hmg-prod/images/545a5a6c-6cad-49ff-b6a1-ad84f93d1d06.jpg?crop=0.888888888889xw:1xh;center,top&resize=1200:*",
+  "pattern": "P16",
+  "query": "tracked mower walk behind",
+  "source": "www.safebasementsinc.com",
+  "page": "https://www.safebasementsinc.com/?c=19728614041980"
+ },
+ {
+  "url": "https://static.wixstatic.com/media/9134e2_3369a928ec2d4937aec868021637da3b~mv2.jpg/v1/fill/w_480,h_360,al_c,q_80,usm_0.66_1.00_0.01,enc_avif,quality_auto/9134e2_3369a928ec2d4937aec868021637da3b~mv2.jpg",
+  "pattern": "P16",
+  "query": "tracked mower walk behind",
+  "source": "Tractors and Flails",
+  "page": "https://www.tractorsandflails.com/product-page/raptor-x-pedestrian-track-flail-mower"
+ }
+]

@@ -8,6 +8,9 @@ from .base import Connector, ClaimDict
 _PATHS = ("/impressum", "/de/impressum", "/kontakt/impressum", "/imprint", "/legal-notice")
 _VAT = re.compile(r"(USt[- ]?IdNr\.?|VAT|MwSt)\s*[:.]?\s*([A-Z]{2}\s?\d[\d\s]{6,})", re.I)
 _GF = re.compile(r"(Gesch[äa]ftsf[üu]hrer(?:in)?)\s*[:.]?\s*([A-ZÄÖÜ][\w.\-]+(?:\s+[A-ZÄÖÜ][\w.\-]+){0,3})")
+_ADDR = re.compile(
+    r"([A-ZÄÖÜ][\wäöüß.\- ]{2,40}(?:stra[ßs]{1,2}e|str\.|weg|allee|platz|ring|gasse)\s*\d+[a-z]?)"
+    r"[,\s]+(\d{5})\s+([A-ZÄÖÜ][\wäöüß.\- ]{1,40})", re.I)
 
 
 class ImpressumConnector(Connector):
@@ -34,4 +37,8 @@ class ImpressumConnector(Connector):
         g = _GF.search(html or "")
         if g:
             out.append(ClaimDict("managing_director", g.group(2).strip(), url, "impressum", 0.8))
+        a = _ADDR.search(html or "")
+        if a:
+            addr = f"{a.group(1).strip()}, {a.group(2)} {a.group(3).strip()}"
+            out.append(ClaimDict("address", " ".join(addr.split()), url, "impressum", 0.8))
         return out

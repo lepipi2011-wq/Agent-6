@@ -1,0 +1,63 @@
+name: Agent 6 — Wöchentlicher Harvest
+
+# Läuft jeden Montag 06:00 UTC + manuell per Klick (Actions-Tab -> Run workflow).
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+    inputs:
+      patterns:
+        description: "Nur diese Pattern-Codes (z.B. P4,P5,P8) — leer = alle"
+        required: false
+        default: ""
+      per_pattern:
+        description: "Bilder je Pattern"
+        required: false
+        default: "20"
+
+jobs:
+  harvest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Abhängigkeiten
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+
+      - name: Config bereitstellen
+        run: cp config.example.yaml config.yaml
+
+      - name: Bild-Harvest (objekt-zentriert -> Airtable)
+        env:
+          SERPAPI_KEY: ${{ secrets.SERPAPI_KEY }}
+          AIRTABLE_TOKEN: ${{ secrets.AIRTABLE_TOKEN }}
+        run: |
+          python -m agent6_engine.image_search_harvester \
+            --config config.yaml --patterns-file patterns.json \
+            --per-pattern "${{ github.event.inputs.per_pattern || '20' }}" \
+            ${{ github.event.inputs.patterns && format('--patterns {0}', github.event.inputs.patterns) || '' }} \
+            --out agent6_image_candidates.json
+
+      - name: Text-Harvest (Spec-Sprache -> CSV)
+        env:
+          SERPAPI_KEY: ${{ secrets.SERPAPI_KEY }}
+        run: |
+          python -m agent6_engine.text_harvester \
+            --config config.yaml --patterns-file patterns.json \
+            ${{ github.event.inputs.patterns && format('--patterns {0}', github.event.inputs.patterns) || '' }} \
+            --out agent6_text_candidates.csv
+
+      - name: Ergebnisse als Artefakt sichern
+        uses: actions/upload-artifact@v4
+        with:
+          name: harvest-${{ github.run_number }}
+          path: |
+            agent6_image_candidates.json
+            agent6_text_candidates.csv
+          if-no-files-found: warn
