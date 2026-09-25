@@ -16,6 +16,7 @@ Suche/Schreiben laufen auf deiner Maschine; die Logik ist per Injection offline 
 from __future__ import annotations
 import os, json, time, datetime
 from urllib.parse import urlparse
+from . import source_trust as _trust
 
 # Pattern-Code -> exakter Choice-Name in der Airtable-Base "Agent 6 — Bild-Review"
 PATTERN_CHOICE = {
@@ -77,8 +78,9 @@ def _domain(u):
 
 
 def is_junk(url):
-    d = _domain(url)
-    return (not d) or any(j in d for j in _JUNK_DOMAINS)
+    # Eine Wahrheit: der zentrale Trust-Filter entscheidet (Social/Stock, Marktplatz/
+    # Aggregator inkl. TikTok/Alibaba/made-in-china, Thumbnail-CDNs, domainlos).
+    return _trust.is_low_trust(url)
 
 
 # --------------------------------------------------------------- Airtable
@@ -89,22 +91,78 @@ class AirtableWriter:
         self.base = base or os.environ.get("AIRTABLE_BASE", AIRTABLE_BASE_DEFAULT)
         self.table = table or os.environ.get("AIRTABLE_TABLE", AIRTABLE_TABLE_DEFAULT)
         self.enabled = bool(self.token)
+        # Robustheit: transiente Netz-/DNS-Fehler abfangen statt still 0 zu schreiben.
+        self.max_retries = 3            # zusaetzliche Versuche nach dem ersten
+        self.retry_backoff = 0.5        # Sekunden, verdoppelt sich je Versuch
+        self.write_failures = 0         # Records, die trotz Retry NICHT geschrieben wurden
+        self.read_failed = False        # True, wenn ein Lese-Aufruf endgueltig scheiterte
+        self.last_error = ""            # letzte Fehlermeldung (fuer laute Meldung/Stats)
+        import time as _t
+        self._sleep = _t.sleep          # injizierbar in Tests (kein echtes Warten)
 
     def _hdr(self):
         return {"Authorization": f"Bearer {self.token}", "Content-Type": "application/json"}
 
+    # Transiente Fehler (DNS/Connection/Timeout/429/5xx) werden geretryt; 4xx wie 422
+    # (falscher Feldname) NICHT — das ist ein echter Datenfehler und soll sofort sichtbar sein.
+    _RETRY_STATUS = (429, 500, 502, 503, 504)
+
+    def _request_with_retry(self, method, url, **kwargs):
+        import requests
+        attempts = self.max_retries + 1
+        resp = None
+        for i in range(attempts):
+            try:
+                resp = requests.request(method, url, **kwargs)
+                if resp.status_code in self._RETRY_STATUS and i < attempts - 1:
+                    self.last_error = f"HTTP {resp.status_code}"
+                    self._sleep(self.retry_backoff * (2 ** i))
+                    continue
+                return resp
+            except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+                self.last_error = f"{type(e).__name__}: {str(e)[:150]}"
+                if i < attempts - 1:
+                    self._sleep(self.retry_backoff * (2 ** i))
+                    continue
+                raise
+        return resp
+
+    def _patch_batches(self, updates):
+        """PATCH in 10er-Batches mit Retry. Zaehlt nicht behebbare Fehler in
+        self.write_failures und meldet am Ende LAUT — statt still 0 zurueckzugeben."""
+        self.write_failures = 0
+        done = 0
+        for i in range(0, len(updates), 10):
+            batch = updates[i:i + 10]
+            try:
+                resp = self._request_with_retry(
+                    "PATCH", f"https://api.airtable.com/v0/{self.base}/{self.table}",
+                    headers=self._hdr(), json={"records": batch, "typecast": True}, timeout=30)
+                resp.raise_for_status()
+                done += len(resp.json().get("records", []))
+            except Exception as e:
+                self.write_failures += len(batch)
+                body = getattr(getattr(e, "response", None), "text", "")
+                self.last_error = f"{type(e).__name__}: {str(e)[:120]} {body[:200]}".strip()
+                print(f"  Airtable-Update-Fehler: {e} {body[:200]}")
+        if self.write_failures:
+            print(f"  ⚠ AIRTABLE: {self.write_failures} Records trotz Retry NICHT geschrieben "
+                  f"({self.last_error}). Daten sind in der CSV, aber NICHT in der Base — "
+                  f"Netz/DNS oder Feldname pruefen.")
+        return done
+
     def existing_urls(self):
         if not self.enabled:
             return set()
-        import requests
         urls, offset = set(), None
         try:
             for _ in range(20):  # bis 20 Seiten (2000 Records)
                 params = {"fields[]": "Bild-URL", "pageSize": 100}
                 if offset:
                     params["offset"] = offset
-                r = requests.get(f"https://api.airtable.com/v0/{self.base}/{self.table}",
-                                 headers=self._hdr(), params=params, timeout=30)
+                r = self._request_with_retry(
+                    "GET", f"https://api.airtable.com/v0/{self.base}/{self.table}",
+                    headers=self._hdr(), params=params, timeout=30)
                 r.raise_for_status()
                 d = r.json()
                 for rec in d.get("records", []):
@@ -114,28 +172,32 @@ class AirtableWriter:
                 offset = d.get("offset")
                 if not offset:
                     break
-        except Exception:
-            pass
+        except Exception as e:
+            self.read_failed = True
+            self.last_error = f"{type(e).__name__}: {str(e)[:150]}"
+            print(f"  ⚠ Airtable-Lesefehler (existing_urls): {e} — Dedup unvollstaendig.")
         return urls
 
     def _all_records(self):
-        import requests
         recs, offset = [], None
         try:
             for _ in range(30):
                 params = {"pageSize": 100}
                 if offset:
                     params["offset"] = offset
-                r = requests.get(f"https://api.airtable.com/v0/{self.base}/{self.table}",
-                                 headers=self._hdr(), params=params, timeout=30)
+                r = self._request_with_retry(
+                    "GET", f"https://api.airtable.com/v0/{self.base}/{self.table}",
+                    headers=self._hdr(), params=params, timeout=30)
                 r.raise_for_status()
                 d = r.json()
                 recs.extend(d.get("records", []))
                 offset = d.get("offset")
                 if not offset:
                     break
-        except Exception:
-            pass
+        except Exception as e:
+            self.read_failed = True
+            self.last_error = f"{type(e).__name__}: {str(e)[:150]}"
+            print(f"  ⚠ Airtable-Lesefehler (_all_records): {e} — Kandidatenliste unvollstaendig!")
         return recs
 
     def candidates_missing(self, field="HMI-Typ", limit=None):
@@ -154,6 +216,61 @@ class AirtableWriter:
                 continue
             page = f.get("Quell-Seite") or ""
             if not page:                       # Altbestand ohne Quell-Seite: Domain-Wurzel
+                from urllib.parse import urlparse
+                p = urlparse(url)
+                page = f"{p.scheme}://{p.netloc}" if p.scheme and p.netloc else url
+            _pv = str(f.get("Pattern-Vorschlag", "") or "").split()
+            pat = _pv[0] if _pv else ""
+            titel = str(f.get("Notizen", "") or "").replace("Bildtitel:", "").strip()
+            out.append({"url": url, "page": page, "pattern": pat,
+                        "title": titel, "query": str(f.get("Query", "") or "")})
+            if limit and len(out) >= limit:
+                break
+        return out
+
+    def candidates_reenrich(self, urteil="Unsicher", limit=None):
+        """Records, die die Anreicherung als `urteil` (Default 'Unsicher') markiert hat ->
+        nochmal durch die Anreicherung schicken. So bekommen bereits geladene, aber unaufgeloeste
+        Quellen (z.B. Seppi, Energreen, FAE) mit funktionierendem Fetch/Resolver doch noch OEM/CAN.
+        Anders als candidates_missing werden hier auch Records MIT gesetztem HMI-Typ nachgezogen."""
+        if not self.enabled:
+            return []
+        out = []
+        for rec in self._all_records():
+            f = rec.get("fields", {})
+            if str(f.get("Claude-Urteil", "") or "").strip() != urteil:
+                continue
+            url = f.get("Bild-URL")
+            if not url:
+                continue
+            page = f.get("Quell-Seite") or ""
+            if not page:
+                from urllib.parse import urlparse
+                p = urlparse(url)
+                page = f"{p.scheme}://{p.netloc}" if p.scheme and p.netloc else url
+            _pv = str(f.get("Pattern-Vorschlag", "") or "").split()
+            pat = _pv[0] if _pv else ""
+            titel = str(f.get("Notizen", "") or "").replace("Bildtitel:", "").strip()
+            out.append({"url": url, "page": page, "pattern": pat,
+                        "title": titel, "query": str(f.get("Query", "") or "")})
+            if limit and len(out) >= limit:
+                break
+        return out
+
+    def candidates_all(self, limit=None):
+        """ALLE Records mit Bild-URL -> komplette Neu-Anreicherung mit der aktuellen Pipeline
+        (Aggregator-Aufloesung, Gewicht/Leistung, frisches CAN-Urteil), unabhaengig davon,
+        ob sie schon angereichert sind. Fuer den vollen Re-Run ueber den gesamten Bestand."""
+        if not self.enabled:
+            return []
+        out = []
+        for rec in self._all_records():
+            f = rec.get("fields", {})
+            url = f.get("Bild-URL")
+            if not url:
+                continue
+            page = f.get("Quell-Seite") or ""
+            if not page:
                 from urllib.parse import urlparse
                 p = urlparse(url)
                 page = f"{p.scheme}://{p.netloc}" if p.scheme and p.netloc else url
@@ -196,18 +313,7 @@ class AirtableWriter:
         updates = list(by_id.values())
         print(f"  Airtable: {len(updates)} Records zugeordnet, {unmatched} ohne Treffer "
               f"(von {len(by_url)} Records in der Base).")
-        done = 0
-        for i in range(0, len(updates), 10):
-            try:
-                resp = requests.patch(f"https://api.airtable.com/v0/{self.base}/{self.table}",
-                                      headers=self._hdr(),
-                                      json={"records": updates[i:i + 10], "typecast": True},
-                                      timeout=30)
-                resp.raise_for_status()
-                done += len(resp.json().get("records", []))
-            except Exception as e:
-                body = getattr(getattr(e, "response", None), "text", "")
-                print(f"  Airtable-Update-Fehler: {e} {body[:200]}")
+        done = self._patch_batches(updates)
         return done
 
     def update_enrichment(self, rows):
@@ -234,7 +340,8 @@ class AirtableWriter:
                 "OEM": r.get("oem", ""), "Modell": r.get("modell", ""),
                 "Anwendungsart": r.get("anwendung", ""), "HMI-Typ": r.get("hmi_typ", "unklar"),
                 "CAN-Bus": r.get("can_bus", "unklar"),
-                "Preis-EUR": r.get("preis_eur"), "Priorität": r.get("prioritaet", ""),
+                "Preis-EUR": ("" if r.get("preis_eur") in (None, "") else str(r.get("preis_eur"))),
+                "Priorität": r.get("prioritaet", ""),
                 "Claude-Urteil": r.get("claude_urteil", ""),
                 "Claude-Konfidenz": r.get("claude_konfidenz"),
                 "Claude-Begründung": r.get("claude_begruendung", "")}})
@@ -244,37 +351,32 @@ class AirtableWriter:
         updates = list(by_id.values())
         print(f"  Airtable: {len(updates)} Records zugeordnet, {unmatched} ohne Treffer "
               f"(von {len(by_url)} Records in der Base).")
-        done = 0
-        for i in range(0, len(updates), 10):
-            batch = updates[i:i + 10]
-            try:
-                resp = requests.patch(f"https://api.airtable.com/v0/{self.base}/{self.table}",
-                                      headers=self._hdr(),
-                                      json={"records": batch, "typecast": True}, timeout=30)
-                resp.raise_for_status()
-                done += len(resp.json().get("records", []))
-            except Exception as e:
-                body = getattr(getattr(e, "response", None), "text", "")
-                print(f"  Airtable-Update-Fehler: {e} {body[:200]}")
+        done = self._patch_batches(updates)
         return done
 
     def write(self, records):
         """records: Liste von dicts mit fertigen Feldwerten. 10 je Request."""
         if not self.enabled:
             return 0
-        import requests
+        self.write_failures = 0
         written = 0
         for i in range(0, len(records), 10):
             batch = [{"fields": r} for r in records[i:i + 10]]
             try:
-                r = requests.post(f"https://api.airtable.com/v0/{self.base}/{self.table}",
-                                  headers=self._hdr(),
-                                  json={"records": batch, "typecast": True}, timeout=30)
+                r = self._request_with_retry(
+                    "POST", f"https://api.airtable.com/v0/{self.base}/{self.table}",
+                    headers=self._hdr(), json={"records": batch, "typecast": True}, timeout=30)
                 r.raise_for_status()
                 written += len(r.json().get("records", []))
-                time.sleep(0.25)  # Airtable Rate-Limit 5 req/s schonen
+                self._sleep(0.25)  # Airtable Rate-Limit 5 req/s schonen
             except Exception as e:
-                print(f"  Airtable-Schreibfehler: {e}")
+                self.write_failures += len(batch)
+                body = getattr(getattr(e, "response", None), "text", "")
+                self.last_error = f"{type(e).__name__}: {str(e)[:120]} {body[:200]}".strip()
+                print(f"  Airtable-Schreibfehler: {e} {body[:200]}")
+        if self.write_failures:
+            print(f"  ⚠ AIRTABLE: {self.write_failures} Records trotz Retry NICHT angelegt "
+                  f"({self.last_error}). Netz/DNS oder Feldname pruefen.")
         return written
 
 
@@ -325,7 +427,8 @@ def harvest(cfg, patterns, per_pattern=15, searcher=None, writer=None,
     seen = set(known)
     all_records, manifest = [], []
     stats = {"searched": 0, "found": 0, "junk": 0, "dup": 0, "new": 0,
-             "by_pattern": {}, "airtable_written": 0}
+             "by_pattern": {}, "airtable_written": 0,
+             "blocked": {"social/stock": 0, "marktplatz": 0, "cdn/thumbnail": 0, "keine-domain": 0}}
 
     for code, pat in patterns.items():
         if only_patterns and code not in only_patterns:
@@ -345,8 +448,10 @@ def harvest(cfg, patterns, per_pattern=15, searcher=None, writer=None,
                 if not url:
                     continue
                 stats["found"] += 1; q_found += 1
-                if is_junk(url):
+                if _trust.is_low_trust(url):
                     stats["junk"] += 1
+                    reason = _trust.block_reason(url)
+                    stats["blocked"][reason] = stats["blocked"].get(reason, 0) + 1
                     continue
                 if url in seen:
                     stats["dup"] += 1
@@ -376,18 +481,30 @@ def harvest(cfg, patterns, per_pattern=15, searcher=None, writer=None,
         stats["airtable_written"] = writer.write(all_records)
     if repo and q_stats:
         stats["queries_bewertet"] = repo.report(q_stats)
+    # Mittlerer Quellen-Score der BEHALTENEN Records (1=cheap, 2=Fachquelle, 3=OEM-direkt).
+    kept = [_trust.source_score(r["Bild-URL"]) for r in all_records]
+    stats["quellen_score"] = round(sum(kept) / len(kept), 2) if kept else None
     stats.update(quality_gate(stats))
     return stats
 
 
 def quality_gate(stats) -> dict:
-    """Deine Regel: Yield = neu/gefunden; Warnung bei viel Junk/Duplikaten."""
+    """Quality-Gate (Trust-Fokus): Yield = neu/gefunden, Cheap-Anteil = geblockt/gefunden,
+    Quellen-Score der behaltenen Records. Warnungen nach Pierres Schwellen."""
     found = stats["found"]
     yield_ = stats["new"] / max(1, found)
+    cheap_share = stats.get("junk", 0) / max(1, found)
+    score = stats.get("quellen_score")
     warn = []
     if found and yield_ < 0.30:
         warn.append(f"Yield {yield_:.0%} < 30% (viel Junk/Duplikate) — Queries schärfen")
-    return {"yield": round(yield_, 2), "quality_warning": "; ".join(warn) or None}
+    if found and cheap_share >= 0.70:
+        warn.append(f"Cheap-Anteil {cheap_share:.0%} ≥ 70% — Queries ziehen fast nur "
+                    f"Aggregatoren/Social; Modellnamen statt Gattungsbegriffe nötig")
+    if score is not None and score < 2.0:
+        warn.append(f"Quellen-Score {score} < 2,0 — zu wenig OEM/Fachquellen")
+    return {"yield": round(yield_, 2), "cheap_share": round(cheap_share, 2),
+            "quality_warning": "; ".join(warn) or None}
 
 
 def main():

@@ -54,7 +54,11 @@ def keep_image(path, cls, patterns, cfg) -> tuple[bool, str]:
             "keep=false ZWINGEND bei: Rädern/Reifen statt Kette, Radlader/Stapler/LKW/PKW, "
             "handgeführtem Gerät/Sonde/Scanner/Messtechnik, Schiff/Boot, Turbine, Gebäude/Halle, "
             "Logo/Icon/Grafik, Diagramm, Person-Porträt/Marketingszene, historischem Foto, "
-            "Stockbild — oder wenn kein Kettenfahrwerk klar erkennbar ist. Im Zweifel keep=false."
+            "Stockbild — oder wenn kein Kettenfahrwerk klar erkennbar ist. Im Zweifel keep=false. "
+            "BETRIEBSSCHNITTSTELLE (wichtig für Scope): Achte darauf, ob Kabine, Bedien-Plattform, "
+            "Sitz oder Deichsel sichtbar sind. Fehlen ALLE vier, ist die Maschine autonom oder bereits "
+            "ferngesteuert (kein Ziel) — vermerke das in 'reason' (z.B. 'keine Betriebsschnittstelle -> "
+            "autonom/RC')."
         )
         msg = client.messages.create(
             model=model, max_tokens=120,

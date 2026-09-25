@@ -110,9 +110,15 @@ def run(cfg, candidates_path="agent6_enriched.csv", out_csv="agent6_preise.csv",
             for r in out:
                 w.writerow(r)
     if airtable and getattr(airtable, "enabled", False):
+        # Preis-EUR ist in Airtable eine Text-Spalte -> Zahl als String schicken (CSV bleibt numerisch,
+        # da bereits geschrieben). Robust auch, falls die Spalte auf Waehrung/Zahl umgestellt wird.
+        for r in out:
+            v = r.get("preis_indikation_eur")
+            r["preis_indikation_eur"] = "" if v in (None, "") else str(v)
         stats["airtable_updated"] = airtable.update_fields(
             out, {"Preis-EUR": "preis_indikation_eur", "Preis-Spanne": "preis_spanne",
                   "Preis-Sicherheit": "preis_sicherheit", "Preis-Quelle": "preis_quelle"})
+        stats["airtable_failed"] = getattr(airtable, "write_failures", 0)
     stats["out_csv"] = out_csv
     return stats
 
@@ -138,6 +144,11 @@ def main():
     res = run(cfg, candidates_path=args.candidates, out_csv=args.out, limit=args.limit,
               nur_prio=nur, airtable=at)
     print("PREIS-RECHERCHE:", res)
+    if res.get("airtable_failed"):
+        import sys
+        print(f"  ⚠ EXIT 2: {res['airtable_failed']} Preis-Records NICHT in Airtable geschrieben "
+              f"(Daten liegen in {res.get('out_csv')}). Nach Netz-Fix erneut mit --airtable laufen.")
+        sys.exit(2)
 
 
 if __name__ == "__main__":

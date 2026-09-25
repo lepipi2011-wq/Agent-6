@@ -15,6 +15,7 @@ Braucht ANTHROPIC_API_KEY; OEM-Nachladen braucht SERPAPI_KEY; Airtable optional.
 from __future__ import annotations
 import os, re, csv, json, datetime
 from urllib.parse import urlparse
+from . import source_trust as _trust
 
 HMI_KATEGORIEN = ("Kabel-Pendant", "Stationär/fest", "Funk", "Fußpedal/Vor-Ort", "unklar")
 
@@ -51,9 +52,53 @@ PREIS_HINWEISE = ("Preis, Listenpreis, UVP, ab EUR, zzgl. MwSt / price, list pri
                   "from USD / prezzo, prezzo di listino / prix, prix catalogue")
 PREIS_SCHWELLE_EUR = 10000
 
+# Groessen-Gate (Cluster-6 / Vorgehensweise v3): Mindestgroesse fuer einen sinnvollen
+# Safety-RC-Retrofit. Niedrige Schwelle, Borderline lieber drin lassen (Pierre).
+GEWICHT_MIN_T = 0.8      # Betriebsgewicht in Tonnen
+LEISTUNG_MIN_KW = 8      # Motorleistung in kW
 
-def priorisiere(can_bus, preis_eur, hmi_typ, ist_ziel=True) -> str:
-    if not ist_ziel:
+
+def _num(x):
+    """Robuste Zahl-Extraktion (akzeptiert '1,5', '1.5 t', None)."""
+    if isinstance(x, (int, float)):
+        return float(x)
+    if not x:
+        return None
+    m = re.search(r"[-+]?\d+(?:[.,]\d+)?", str(x))
+    return float(m.group().replace(",", ".")) if m else None
+
+
+def groesse_status(gewicht_t, leistung_kw) -> str:
+    """ok = mind. eine Dimension erreicht die Schwelle; 'zu klein' = BEIDE bekannt und beide
+    darunter; 'unklar' = mind. eine Dimension fehlt und keine erreicht die Schwelle.
+    Grund: Bei OR-Logik kann eine unbekannte Dimension die Maschine noch qualifizieren ->
+    dann NICHT disqualifizieren (False Positives akzeptabel)."""
+    g, l = _num(gewicht_t), _num(leistung_kw)
+    if (g is not None and g >= GEWICHT_MIN_T) or (l is not None and l >= LEISTUNG_MIN_KW):
+        return "ok"
+    if g is not None and l is not None:      # beide bekannt, keine Schwelle erreicht
+        return "zu klein"
+    return "unklar"
+
+
+# --- Bild-Heuristik Betriebsschnittstelle (Pierre-Regel, 2026-09-24) -------------------
+# WICHTIG: CAN/Gewicht/Leistung lassen sich NICHT aus dem Bild extrahieren -> dafuer ist das
+# Datenblatt / --verify-specs zustaendig (Text). Das BILD liefert ein anderes, starkes Signal:
+# die Betriebsschnittstelle am Fahrzeug. Fehlen Kabine, Plattform, Sitz UND Deichsel, dann wird
+# die Maschine nicht von einem Bediener am/auf dem Geraet gefuehrt -> sie ist AUTONOM oder bereits
+# FERNGESTEUERT. Beides ist NICHT das Ziel (autonom = RC-Fit fraglich; RC vorhanden = Verdraengung).
+# Ist mindestens eine Betriebsschnittstelle sichtbar, ist der Bediener am Geraet -> Kandidat fuer
+# eine RC-Nachruestung -> In-Scope-Signal. (Belegt durch Review: 'pedana operatore stand-on' = 68% Ziel.)
+def operator_interface_scope(kabine=False, plattform=False, sitz=False, deichsel=False) -> str:
+    """'bediener-praesent' (In-Scope-Signal) wenn Kabine/Plattform/Sitz/Deichsel sichtbar,
+    sonst 'autonom-oder-RC' (Out-of-Scope-Signal: autonom oder bereits ferngesteuert)."""
+    if any((kabine, plattform, sitz, deichsel)):
+        return "bediener-praesent"
+    return "autonom-oder-RC"
+
+
+def priorisiere(can_bus, preis_eur, hmi_typ, ist_ziel=True, claude_urteil="", groesse="unklar") -> str:
+    if not ist_ziel or claude_urteil == "Out-of-Scope" or groesse == "zu klein":
         return "X"                       # ausser Scope -> nicht an den Vertrieb
     """A = CAN + Preis ueber Schwelle (bester Fit), B = CAN oder Preis ok, C = hydraulisch/guenstig.
     Hydraulische bleiben drin (Pierres Vorgabe), CAN hat aber Vorrang."""
@@ -82,6 +127,21 @@ def _domain(u):
 def is_dealer(url) -> bool:
     d = _domain(url)
     return any(x in d for x in _DEALER)
+
+
+# Marktplatz-/Listing-Aggregatoren: das Bild liegt auf deren CDN, die Listing-Seite blockt
+# Bots oder ist reines JS -> liefert leeren Text. Das ist NIE die OEM-Seite. Gegenmassnahme:
+# tote Seite gar nicht erst fetchen, sondern per Bildtitel/Modell die echte Herstellerseite suchen.
+_AGGREGATOR = ("machinerytrader.", "sandhills.", "marketbook.", "mascus.", "machineryzone.",
+               "ritchiespecs.", "equipmenttrader.", "trademachines.", "ironplanet.",
+               "govplanet.", "rockanddirt.", "truckpaper.", "forestrytrader.",
+               "mylittlesalesman.", "cranenetwork.", "plantandequipment.", "autoline",
+               "agriaffaires.", "truck1.")
+
+
+def is_aggregator(url) -> bool:
+    d = _domain(url)
+    return any(x in d for x in _AGGREGATOR)
 
 
 def _pdf_to_text(data: bytes, max_chars=6000) -> str:
@@ -198,11 +258,29 @@ def _parse_json(txt):
     return {}
 
 
+# Few-Shot aus echten Review-Verdikten (kalibriert die Urteilsschicht gegen die Mensch-Labels;
+# adressiert die gemessene Ueber-Ablehnung: Baseline-Recall 16 %). Kurz halten (Kosten).
+FEW_SHOT_URTEIL = (
+    "\nBEISPIELE (so urteilen wir):\n"
+    "1) Kettengetriebener Stand-on-/Aufsitz-Mulcher, hydrostatisch, KEIN CAN erwaehnt -> "
+    "'In-Scope' (Anwendung passt; fehlendes CAN ist kein Ausschluss -> Aktuator-Retrofit).\n"
+    "2) Kettenmaschine, die laut Text BEREITS per Funk/Radio ferngesteuert wird -> 'Out-of-Scope' "
+    "(Verdraengung, schon RC).\n"
+    "3) Autonomer/roboterhafter Kettenschlepper ohne Kabine/Plattform/Sitz/Deichsel -> 'Out-of-Scope' "
+    "(autonom, kein Bediener am Geraet).\n"
+    "4) Rad-/Reifen-Maschine oder blosses Anbaugeraet/Bauteil -> 'Out-of-Scope'.\n"
+    "5) Text leer/sehr duenn oder Aggregator-/Social-/Listing-Seite (kein OEM-Inhalt) -> 'Unsicher' "
+    "(NICHT Out-of-Scope; Kandidat wird spaeter nachaufgeloest statt verworfen).\n"
+)
+
+
 def enrich(page_text, image_url, pattern, cfg, client=None, lessons="") -> dict:
     client = client or _client()
     if client is None:
         return {"oem": "", "modell": "", "anwendung": "", "hmi_typ": "unklar",
-                "can_bus": "unklar", "can_reason": "", "preis_eur": None, "preis_beleg": "", "sprache": "", "reason": "kein-key"}
+                "can_bus": "unklar", "can_reason": "", "preis_eur": None, "preis_beleg": "",
+                "gewicht_t": None, "leistung_kw": None, "groesse_beleg": "",
+                "sprache": "", "reason": "kein-key"}
     model = cfg.get("harvest", {}).get("vlm_model", "claude-haiku-4-5-20251001")
     vokab = "\n".join(f"  - {k}: {v}" for k, v in HMI_VOKABULAR.items())
     can_vokab = "\n".join(f"  - {k}: {v}" for k, v in CAN_VOKABULAR.items())
@@ -219,22 +297,37 @@ def enrich(page_text, image_url, pattern, cfg, client=None, lessons="") -> dict:
         "- can_bus: Suche AKTIV nach CAN-Bus / elektrisch ansteuerbarer Hydraulik anhand:\n" + can_vokab +
         "\n  Werte: 'CAN belegt' (CAN/CANopen/J1939 direkt genannt), 'wahrscheinlich CAN' "
         "(IQAN/Danfoss/BODAS oder E-Hydraulik genannt), 'wahrscheinlich rein-hydraulisch' "
-        "(Gegen-Anker genannt), 'unklar' (nichts dazu im Text). Ohne CAN/E-Hydraulik ist die "
-        "Maschine NICHT nachrüstbar.\n"
+        "(Gegen-Anker genannt), 'unklar' (nichts dazu im Text). "
+        "WICHTIG: Fehlendes CAN ist KEIN Ausschlussgrund. Passt die Anwendung, fehlt nur CAN, "
+        "ist eine Aktuator-Nachrüstung denkbar -> Kandidat BLEIBT (Regel Pierre 'no can').\n"
         "- can_reason: Textbeleg für can_bus (welche Stelle)\n"
         "- preis_eur: Listenpreis/UVP als ZAHL in EUR (USD/GBP grob umrechnen), sonst null. "
         f"Achte auf: {PREIS_HINWEISE}\n"
         "- preis_beleg: Textstelle zum Preis (Originalangabe mit Währung)\n"
+        "- gewicht_t: Betriebsgewicht als ZAHL in Tonnen (kg/lbs umrechnen: 1500 kg = 1.5), sonst null. "
+        "Suche: Operating Weight, Betriebsgewicht, Gross Weight, Gewicht, peso, poids\n"
+        "- leistung_kw: Motorleistung als ZAHL in kW (HP/PS umrechnen: 1 HP = 0.75 kW), sonst null. "
+        "Suche: Motorleistung, engine power, kW, HP, PS, potenza, puissance\n"
+        "- groesse_beleg: Textstelle zu Gewicht/Leistung (Originalangabe mit Einheit)\n"
         "- sprache: Sprache der Seite\n- reason: kurze Begründung mit Textbeleg für hmi_typ\n"
         "- claude_urteil: DEIN eigenes Scope-Urteil, unabhaengig vom Pattern-Vorschlag: "
-        "'In-Scope' (kettengetrieben, RC-nachruestbar, im Zielsegment), 'Out-of-Scope' "
-        "(Raeder/Bauteil/keine Zielmaschine), 'Unsicher' (Quelle zu duenn)\n"
+        "'In-Scope' (kettengetrieben, im Zielsegment; fehlendes CAN allein ist KEIN Grund fuer Out), "
+        "'Out-of-Scope' (Raeder/Bauteil/keine Zielmaschine ODER schon ferngesteuert=Verdraengung "
+        "ODER autonom), 'Unsicher' (Quelle zu duenn).\n"
+        "  BILD-/BAUART-HEURISTIK (stark): Fehlen Kabine, Plattform, Sitz UND Deichsel, wird die "
+        "Maschine nicht vom Bediener am Geraet gefuehrt -> sie ist AUTONOM oder bereits FERNGESTEUERT "
+        "-> Out-of-Scope. Ist eine dieser Betriebsschnittstellen vorhanden (Bediener am Geraet) -> "
+        "starkes In-Scope-Signal (RC-Nachruestung moeglich).\n"
         "- claude_konfidenz: wie sicher du bist (0.0-1.0)\n"
         "- claude_begruendung: 1 Satz, warum dieses Urteil\n"
+        "WICHTIG: Urteile NICHT vorschnell 'Out-of-Scope'. Nur bei klarem Gegenbeleg (Raeder/Bauteil/"
+        "autonom/schon-RC). Ist die Quelle zu duenn, waehle 'Unsicher'.\n"
+        + FEW_SHOT_URTEIL
         + (lessons or "") +
         f"\n\nSeitentext:\n{page_text[:8000]}\n\n"
         'Antworte NUR JSON {"ist_zielmaschine","oem","modell","anwendung","hmi_typ","can_bus",'
-        '"can_reason","preis_eur","preis_beleg","sprache","reason"}.')
+        '"can_reason","preis_eur","preis_beleg","gewicht_t","leistung_kw","groesse_beleg",'
+        '"sprache","reason"}.')
     try:
         msg = client.messages.create(model=model, max_tokens=700,
                                      messages=[{"role": "user", "content": prompt}])
@@ -247,13 +340,17 @@ def enrich(page_text, image_url, pattern, cfg, client=None, lessons="") -> dict:
         d.setdefault("hmi_typ", "unklar")
         d.setdefault("can_bus", "unklar")
         d.setdefault("preis_eur", None)
-        for k in ("oem", "modell", "anwendung", "sprache", "reason", "can_reason", "preis_beleg"):
+        d.setdefault("gewicht_t", None)
+        d.setdefault("leistung_kw", None)
+        for k in ("oem", "modell", "anwendung", "sprache", "reason", "can_reason", "preis_beleg",
+                  "groesse_beleg"):
             d.setdefault(k, "")
         return d
     except Exception as e:
         return {"ist_zielmaschine": True, "oem": "", "modell": "", "anwendung": "",
                 "hmi_typ": "unklar", "can_bus": "unklar", "can_reason": "", "preis_eur": None,
-                "preis_beleg": "", "sprache": "", "reason": f"fehler:{type(e).__name__}",
+                "preis_beleg": "", "gewicht_t": None, "leistung_kw": None, "groesse_beleg": "",
+                "sprache": "", "reason": f"fehler:{type(e).__name__}",
                 "claude_urteil": "Unsicher", "claude_konfidenz": 0.0, "claude_begruendung": ""}
 
 
@@ -310,8 +407,8 @@ def run(cfg, manifest_path="agent6_image_candidates.json",
         uniq.append(c)
 
     rows, stats = [], {"input": len(cands), "nach_seiten_dedup": len(uniq), "enriched": 0,
-                       "oem_nachgeladen": 0, "pendant": 0, "stationaer": 0, "funk": 0,
-                       "fusspedal": 0, "unklar": 0, "final": 0, "rows_geschrieben": 0,
+                       "oem_nachgeladen": 0, "via_aggregator": 0, "pendant": 0, "stationaer": 0,
+                       "funk": 0, "fusspedal": 0, "unklar": 0, "final": 0, "rows_geschrieben": 0,
                        "airtable_updated": 0}
     # Anreicherung EINMAL je Quell-Seite (spart Kosten)
     page_enr = {}
@@ -321,9 +418,14 @@ def run(cfg, manifest_path="agent6_image_candidates.json",
             break
         page = c.get("page") or c.get("url")
         seed = (c.get("title") or c.get("query") or "").strip()
-        junk = (not page) or is_junk(page)
-        # Junk-Quelle: NICHT sofort aufgeben, sondern per Bildtitel die OEM-Seite suchen
-        if junk and resolve_fn and seed:
+        # "worthless" = Social/Stock/Thumbnail-CDN/keine Domain -> keine lesbare Produktseite.
+        # "agg" = Marktplatz/Handels-Aggregator/Haendler -> NICHT die OEM-Seite, aber aufloesbar.
+        worthless = (not page) or _trust.block_reason(page) in (
+            "social/stock", "cdn/thumbnail", "keine-domain")
+        agg = is_aggregator(page) or _trust.is_marketplace(page) or is_dealer(page)
+        # Wertlose ODER Aggregator-Quelle: der Seite nicht trauen -> per Bildtitel/Modell die
+        # echte Herstellerseite suchen und DIESE anreichern. Ersetzt komplett, auch bei hmi "unklar".
+        if (worthless or agg) and resolve_fn and seed:
             oem_url = _call_resolver(resolve_fn, "", "", seed)
             if oem_url:
                 d = enrich_fn(fetcher(oem_url), c.get("url", ""), c.get("pattern", ""))
@@ -332,8 +434,10 @@ def run(cfg, manifest_path="agent6_image_candidates.json",
                 page_enr[page] = (d, oem_url)
                 stats["enriched"] += 1
                 stats["oem_nachgeladen"] += 1
+                if agg:
+                    stats["via_aggregator"] += 1
                 continue
-        if junk:
+        if worthless:
             page_enr[page] = ({"ist_zielmaschine": False, "oem": "", "modell": "",
                                "anwendung": "AUSSER SCOPE: unbrauchbare Quelle",
                                "hmi_typ": "unklar", "can_bus": "unklar", "can_reason": "",
@@ -363,22 +467,28 @@ def run(cfg, manifest_path="agent6_image_candidates.json",
         if page not in page_enr:
             continue
         d, used_page = page_enr[page]
+        gstat = groesse_status(d.get("gewicht_t"), d.get("leistung_kw"))
         rows.append({"pattern": c.get("pattern", ""), "oem": d.get("oem") or "",
                      "modell": d.get("modell") or "", "anwendung": d.get("anwendung") or "",
                      "hmi_typ": d.get("hmi_typ", "unklar"), "can_bus": d.get("can_bus", "unklar"),
                      "can_reason": d.get("can_reason", ""),
                      "preis_eur": d.get("preis_eur"), "preis_beleg": d.get("preis_beleg", ""),
+                     "gewicht_t": d.get("gewicht_t"), "leistung_kw": d.get("leistung_kw"),
+                     "groesse_status": gstat, "groesse_beleg": d.get("groesse_beleg", ""),
                      "claude_urteil": d.get("claude_urteil", "Unsicher"),
                      "claude_konfidenz": d.get("claude_konfidenz", 0.0),
                      "claude_begruendung": d.get("claude_begruendung", ""),
                      "prioritaet": priorisiere(d.get("can_bus", "unklar"), d.get("preis_eur"),
                                                d.get("hmi_typ", "unklar"),
-                                               d.get("ist_zielmaschine", True)),
+                                               d.get("ist_zielmaschine", True),
+                                               d.get("claude_urteil", ""), gstat),
                      "sprache": d.get("sprache", ""),
                      "reason": d.get("reason", ""), "bild_url": c.get("url", ""),
                      "quell_seite": used_page, "harvested_at": datetime.date.today().isoformat()})
     stats["ausser_scope"] = sum(1 for r in rows if r.get("prioritaet") == "X")
     stats["rows_geschrieben"] = len(rows)
+    for s in ("ok", "zu klein", "unklar"):
+        stats["groesse_" + s.replace(" ", "_")] = sum(1 for r in rows if r.get("groesse_status") == s)
 
     best = {}
     for r in rows:
@@ -409,6 +519,16 @@ def run(cfg, manifest_path="agent6_image_candidates.json",
               ensure_ascii=False, indent=1)
     if airtable and getattr(airtable, "enabled", False):
         stats["airtable_updated"] = airtable.update_enrichment(rows)   # ALLE Records befüllen
+        stats["airtable_failed"] = getattr(airtable, "write_failures", 0)
+        # Groessen-Felder SEPARAT (eigene Spalten): ein fehlender Spaltenname reisst so NICHT
+        # den Kern-Write (OEM/HMI/CAN) mit. Zahlen als String -> robust fuer Text- ODER Zahl-Spalte.
+        size_rows = [{"bild_url": r.get("bild_url"),
+                      "gewicht_t": ("" if r.get("gewicht_t") in (None, "") else str(r.get("gewicht_t"))),
+                      "leistung_kw": ("" if r.get("leistung_kw") in (None, "") else str(r.get("leistung_kw"))),
+                      "groesse_status": r.get("groesse_status", "")} for r in rows]
+        airtable.update_fields(size_rows, {"Gewicht-t": "gewicht_t", "Leistung-kW": "leistung_kw",
+                                           "Größe-Status": "groesse_status"})
+        stats["airtable_size_failed"] = getattr(airtable, "write_failures", 0)
     stats["out_csv"] = out_csv
     return stats
 
@@ -429,7 +549,8 @@ def _bucket(hmi):
 def _write_csv(rows, path):
     cols = ["prioritaet", "claude_urteil", "claude_konfidenz", "claude_begruendung",
             "pattern", "oem", "modell", "anwendung", "hmi_typ", "can_bus",
-            "can_reason", "preis_eur", "preis_beleg", "sprache", "reason", "bild_url",
+            "can_reason", "preis_eur", "preis_beleg", "gewicht_t", "leistung_kw",
+            "groesse_status", "groesse_beleg", "sprache", "reason", "bild_url",
             "quell_seite", "harvested_at"]
     try:
         with open(path, "w", newline="", encoding="utf-8") as f:
@@ -449,6 +570,11 @@ def main():
     ap.add_argument("--manifest", default="agent6_image_candidates.json")
     ap.add_argument("--from-airtable", dest="from_airtable", action="store_true",
                     help="Kandidaten aus Airtable holen (alle Records ohne HMI-Typ) statt aus dem Manifest")
+    ap.add_argument("--reenrich-unsicher", dest="reenrich_unsicher", action="store_true",
+                    help="Statt leerer HMI-Typ: Records mit Claude-Urteil 'Unsicher' erneut "
+                         "anreichern (holt bereits geladene, unaufgeloeste OEM-Quellen nach)")
+    ap.add_argument("--reenrich-all", dest="reenrich_all", action="store_true",
+                    help="ALLE Records komplett neu anreichern (voller Re-Run ueber den Bestand)")
     ap.add_argument("--out", default="agent6_enriched.csv")
     ap.add_argument("--limit", type=int, default=None)
     ap.add_argument("--no-resolve", dest="no_resolve", action="store_true",
@@ -478,13 +604,30 @@ def main():
     if args.from_airtable:
         if not (at and at.enabled):
             print("AIRTABLE_TOKEN fehlt — kann Kandidaten nicht laden."); return
-        source = at.candidates_missing("HMI-Typ", limit=args.limit)
-        print(f"  Aus Airtable geladen: {len(source)} Records ohne HMI-Typ")
+        if args.reenrich_all:
+            source = at.candidates_all(limit=args.limit)
+            print(f"  Re-Enrichment (ALLE): {len(source)} Records geladen")
+        elif args.reenrich_unsicher:
+            source = at.candidates_reenrich("Unsicher", limit=args.limit)
+            print(f"  Re-Enrichment: {len(source)} 'Unsicher'-Records geladen")
+        else:
+            source = at.candidates_missing("HMI-Typ", limit=args.limit)
+            print(f"  Aus Airtable geladen: {len(source)} Records ohne HMI-Typ")
+        if getattr(at, "read_failed", False):
+            import sys
+            print("  ⚠ ABBRUCH: Airtable-Lesefehler — Kandidatenliste unvollstaendig. "
+                  "Netz/DNS pruefen und erneut starten.")
+            sys.exit(3)
     res = run(cfg, manifest_path=source, out_csv=args.out,
               limit=None if args.from_airtable else args.limit,
               airtable=(at if args.airtable else None), resolve_oem=not args.no_resolve,
               lessons=lessons)
     print("HMI-ANREICHERUNG:", res)
+    if res.get("airtable_failed"):
+        import sys
+        print(f"  ⚠ EXIT 2: {res['airtable_failed']} Records NICHT in Airtable geschrieben "
+              f"(Daten liegen in {res.get('out_csv')}). Nach Netz-Fix erneut mit --airtable laufen.")
+        sys.exit(2)
 
 
 if __name__ == "__main__":

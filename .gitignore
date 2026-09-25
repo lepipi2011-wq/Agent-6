@@ -1,32 +1,47 @@
-# Python
+# --- Agent 6 .gitignore ---
+# Umgebung / Build
+.venv/
+venv/
 __pycache__/
 *.py[cod]
 *.egg-info/
-.eggs/
-build/
-dist/
-
-# Virtuelle Umgebungen
-.venv/
-venv/
-env/
-
-# Lokale Konfiguration & Secrets (NIE committen)
-config.yaml
+.pytest_cache/
 .env
-*.key
 
-# Daten & Artefakte (nicht ins Repo)
-*.db
-*.sqlite
-*.xlsx
-*.xlsm
+# Datenbank & Laufzeit-Ausgaben (NICHT versionieren)
+agent6.db
 out/
-outputs/
-scopegate/
+*.log
 
-# IDE / OS
-.idea/
-.vscode/
+# Harvest-/Enrichment-Ausgaben (Zwischenstände, gehören nicht ins Repo)
+agent6_enriched.*
+agent6_dedup.csv
+agent6_preise.csv
+agent6_export.xlsx
+agent6_merge_review.xlsx
+agent6_image_candidates.json
+agent6_text_candidates.*
+agent6_scope_audit*.xlsx
+enrich_all.*
+enriched_v3.json
+reenrich*.*
+probe*.*
+probe_titel*
+probe5*
+vollLauf_*.log
+
+# Master-/Fremd-Exporte (groß, veränderlich)
+agent6_master_live*.xlsx
+agent6_pipedrive_cleanup*.xlsx
+deals_Pipedrive.xlsx
+
+# Einmalige Diagnose-/Wegwerf-Skripte
+airtable_diagnose*.py
+fetch_test*.py
+
+# Patch-Dateien (historisch, gehören in Git-Historie, nicht als Datei)
+*.patch
+
+# OS
 .DS_Store
 Thumbs.db
