@@ -245,8 +245,9 @@ def test_operator_interface_jede_einzelne_schnittstelle_ist_in():
 def test_few_shot_urteil_konstante_vorhanden():
     fs = H.FEW_SHOT_URTEIL
     assert "In-Scope" in fs and "Out-of-Scope" in fs and "Unsicher" in fs
-    # Kernregeln muessen in den Beispielen stehen:
-    assert "Aktuator" in fs                       # No-Can-Regel
+    # Kernregeln muessen in den Beispielen stehen (korrigierte Fassung):
+    assert "Pflichtkriterium" in fs               # CAN ist Pflicht
+    assert "SIL" in fs                            # SIL-Ausschluss
     assert "Verdraengung" in fs or "schon RC" in fs
     assert "autonom" in fs.lower()
 
@@ -254,3 +255,38 @@ def test_enrich_ohne_key_bleibt_robust():
     # ohne Client kein Absturz, definierte Defaults
     d = H.enrich("irgendein text", "http://x/y.jpg", "P4", {"harvest": {}}, client=None)
     assert d["hmi_typ"] == "unklar" and d["can_bus"] == "unklar"
+
+# --- CAN als Pflichtkriterium + SIL-Ausschluss (korrigierter Suchbaum) ---
+def test_priorisiere_kein_can_ist_X():
+    assert H.priorisiere("wahrscheinlich rein-hydraulisch", 50000, "Kabel-Pendant", True, "In-Scope", "ok") == "X"
+    assert H.priorisiere("kein CAN", 50000, "Kabel-Pendant", True, "In-Scope", "ok") == "X"
+
+def test_priorisiere_can_unklar_nicht_hart_verworfen():
+    # unklar wird NICHT auf X gesetzt (Datenblatt-Pruefung via verify-specs offen)
+    assert H.priorisiere("unklar", None, "Kabel-Pendant", True, "In-Scope", "ok") in ("B", "C")
+    assert H.priorisiere("unklar", 100, "Kabel-Pendant", True, "In-Scope", "ok") == "C"  # preis < Schwelle
+
+def test_priorisiere_sil_pflicht_ist_X():
+    assert H.priorisiere("CAN belegt", 50000, "Kabel-Pendant", True, "In-Scope", "ok", "ja") == "X"
+
+def test_priorisiere_can_belegt_bleibt_A():
+    assert H.priorisiere("CAN belegt", 50000, "Kabel-Pendant", True, "In-Scope", "ok", "nein") == "A"
+
+
+# --- priorisiere v2: kein B ohne bestaetigtes CAN + Mensch-Verdikt dominiert ---
+def test_priorisiere_kein_B_ohne_can():
+    # CAN unklar + kein Preis -> frueher faelschlich B, jetzt C
+    assert H.priorisiere("unklar", None, "Kabel-Pendant", True, "In-Scope", "ok") == "C"
+    assert H.priorisiere("unklar", 999999, "Kabel-Pendant", True, "In-Scope", "ok") == "C"
+
+def test_priorisiere_can_belegt_A_und_B():
+    assert H.priorisiere("CAN belegt", None, "x", True, "In-Scope", "ok") == "A"      # Preis None = ok
+    assert H.priorisiere("CAN belegt", 100, "x", True, "In-Scope", "ok") == "B"       # Preis < Schwelle
+
+def test_priorisiere_mensch_verdikt_dominiert():
+    # Mensch sagt Funksteuerung/Out/No-Can -> X, egal was die Maschine meint
+    assert H.priorisiere("CAN belegt", None, "x", True, "In-Scope", "ok", "nein", "Funksteuerung") == "X"
+    assert H.priorisiere("CAN belegt", None, "x", True, "In-Scope", "ok", "nein", "No Can") == "X"
+    assert H.priorisiere("CAN belegt", None, "x", True, "In-Scope", "ok", "nein", "Out of scope / Other") == "X"
+    # In-Scope-Verdikt dominiert NICHT weg (bleibt normale Logik)
+    assert H.priorisiere("CAN belegt", None, "x", True, "In-Scope", "ok", "nein", "✓ In-Scope") == "A"

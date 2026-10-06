@@ -1,0 +1,358 @@
+{
+ "run_id": "20260929-2122-v3.2",
+ "regel_version": "v3.2",
+ "suffix": "before",
+ "count": 50,
+ "records": [
+  {
+   "url": "https://assets.hikvision.com/prd/normal/all/image/m000122349/%E5%A4%96%E7%BD%AE%E5%A4%A9%E7%BA%BF%E6%95%88%E6%9E%9C%E5%9B%BE2.png",
+   "page": "https://www.hikvision.com/sa/products/Alarm-Products/intrusion-accessory/common-accessory/ds-pt061/",
+   "pattern": "P1",
+   "title": "External Antenna",
+   "query": "walk-behind tracked dumper pendant wired operator"
+  },
+  {
+   "url": "https://www.allynav.com/wp-content/uploads/2025/07/Precision-Spraying-in-Structured-Orchards.png",
+   "page": "https://www.allynav.com/precision-agriculture-solutions/agricultural-robots/",
+   "pattern": "P16",
+   "title": "Agricultural Robots | Built For Complex Field Conditions | AllyNav",
+   "query": "tracked weeding robot CAN tethered autonomous vineyard orchard"
+  },
+  {
+   "url": "https://images.reviewed.com/fit-in/972x0/filters:strip_icc():strip_exif():no_upscale():format(webp):quality(72)/1627497682000/lawnmowers.png",
+   "page": "https://getawaycomedy.com/?s=14464714021110",
+   "pattern": "P16",
+   "title": "Zu klein",
+   "query": "tracked mower walk behind"
+  },
+  {
+   "url": "https://www.kuka.com/-/media/kuka-corporate/countries/austria/images/case-studies/baubot-case-study/kuka_baubot_large_image_01_1022x574px.jpg?rev=-1&w=1900&hash=84BE1B61E5288924863DF9202089917F",
+   "page": "https://www.kuka.com/en-us/industries/solutions-database/2024/11/baubot-kr-iontec",
+   "pattern": "P11",
+   "title": "",
+   "query": "tracked shotcrete machine robot arm tethered CAN tunnel operator"
+  },
+  {
+   "url": "https://ae-pic-a1.aliexpress-media.com/kf/S0d6aece671444d6b901ca9fb567a505dD.jpg",
+   "page": "https://www.diversitech-air.com/?g=35899507051430",
+   "pattern": "P16",
+   "title": "",
+   "query": "tracked mower walk behind"
+  },
+  {
+   "url": "https://en.energreen.it/wp-content/uploads/2022/03/013_Slide_Mobile_RoboEVO_Head_130_Riverbank_Maintenance_Rev01.jpg",
+   "page": "https://en.energreen.it/green-maintenance-machines-energreen/robo-remote-controlled-tool-carriers/radio-controlled-tracked-mower/equipment-for-tracked-mulcher-roboevo/",
+   "pattern": "P15",
+   "title": "",
+   "query": "tracked RC mulcher tool carrier remote CAN Italy new"
+  },
+  {
+   "url": "https://sc04.alicdn.com/kf/A3668815a9e1e4a619f5676c249d7c688A.jpg",
+   "page": "https://www.alibaba.com/product-detail/VOLNOS-6-5hp-Power-New-Mini_11000023557421.html",
+   "pattern": "P10",
+   "title": "",
+   "query": "tracked compact loader mini loader stand-on OR tracked mini dumper crawler carrier"
+  },
+  {
+   "url": "https://en.energreen.it/wp-content/uploads/2022/03/14_RoboMAX_TRENCHER_1500_1200x650px.png",
+   "page": "https://en.energreen.it/green-maintenance-machines-energreen/robo-remote-controlled-tool-carriers/forestry-mulcher/attachments-robomax/trencher-digger/",
+   "pattern": "P15",
+   "title": "",
+   "query": "tracked RC mulcher tool carrier remote CAN Italy new"
+  },
+  {
+   "url": "https://www.jaspwilson.co.uk/wp-content/uploads/2025/01/3bf18c0e998d580980f461042b87a387.jpg",
+   "page": "https://www.jaspwilson.co.uk/product-category/fae-remote-control-tracked-carriers/",
+   "pattern": "P15",
+   "title": "",
+   "query": "tracked RC mulcher tool carrier remote CAN Italy new"
+  },
+  {
+   "url": "https://sunrobotronics.com/assets/images/wRZjfire%20fighting%20robot_watermark%20(1).jpg",
+   "page": "https://sunrobotronics.com/blog/fire-fighting-robot?srsltid=AfmBOorRXZo55OMS1nCvO47fk2h5X-UyK7y1hVaUvqNO04eHbCui5OWG",
+   "pattern": "P9",
+   "title": "",
+   "query": "tracked firefighting robot remote CAN wired pendant"
+  },
+  {
+   "url": "https://www.futurefarming.com/app/uploads/2023/01/IMG_Smartmachine2.jpg",
+   "page": "https://www.futurefarming.com/tech-in-focus/field-robots/oxin-vineyard-robot-to-compete-in-new-ag-robot-of-the-year-election/",
+   "pattern": "P16",
+   "title": "",
+   "query": "tracked weeding robot CAN tethered autonomous vineyard orchard"
+  },
+  {
+   "url": "https://hopetechnik.com/wp-content/uploads/2022/12/image116.png",
+   "page": "https://hopetechnik.com/product/firefighting-robot/",
+   "pattern": "P9",
+   "title": "",
+   "query": "tracked firefighting robot remote CAN wired pendant"
+  },
+  {
+   "url": "https://www.jaspwilson.co.uk/wp-content/uploads/2022/05/55-4.jpg",
+   "page": "https://www.jaspwilson.co.uk/product/fae-rcu-55-remote-controlled-tracked-carrier/",
+   "pattern": "P15",
+   "title": "",
+   "query": "tracked RC mulcher tool carrier remote CAN Italy new"
+  },
+  {
+   "url": "https://movexinnovation.com/wp-content/uploads/2023/10/M27HS_4K-1-e1712670787511.png",
+   "page": "https://movexinnovation.com/equipment/mini-loaders/m-27-minidozer/",
+   "pattern": "P10",
+   "title": "",
+   "query": "tracked compact loader mini loader stand-on OR tracked mini dumper crawler carrier"
+  },
+  {
+   "url": "https://www.colmac-italia.com/wp-content/uploads/2026/02/Tucano-550-Plus-1.gif",
+   "page": "https://www.colmac-italia.com/prodotto/motocarriola-cingolata-con-pedana-operatore/?srsltid=AfmBOooEyvrh_47AtpQ34P_DnxmOA8wNFNWl4e-zwORP_yZyhuaV6oeG",
+   "pattern": "P6",
+   "title": "No can",
+   "query": "pedana operatore stand-on tracked Italy motocarriola"
+  },
+  {
+   "url": "https://houseofcontractors.com/cdn/shop/files/CMFATTACHMENT-Photoroom.jpg?v=1749150752&width=1946",
+   "page": "https://houseofcontractors.com/products/cormidi-cmf1200-ri-steel-hydrostatic-track-dumper-1200kg-2646lb-capacity?srsltid=AfmBOorjcKfl7nvUnZerk1Ql1iZacgr9pot94xQA1YigFqfgXlN6oThG",
+   "pattern": "P10",
+   "title": "",
+   "query": "tracked compact loader mini loader stand-on OR tracked mini dumper crawler carrier"
+  },
+  {
+   "url": "https://lookaside.fbsbx.com/lookaside/crawler/media/?media_id=675186954913089&get_thumbnail=1",
+   "page": "https://www.facebook.com/StartupSelfieOfficial/posts/this-little-robot-sprays-an-entire-orchard-by-itself-/1473660408125738/?locale=de_DE",
+   "pattern": "P16",
+   "title": "",
+   "query": "tracked weeding robot CAN tethered autonomous vineyard orchard"
+  },
+  {
+   "url": "https://media.springernature.com/lw685/springer-static/image/art%3A10.1007%2Fs41693-025-00160-2/MediaObjects/41693_2025_160_Fig15_HTML.jpg",
+   "page": "https://link.springer.com/article/10.1007/s41693-025-00160-2",
+   "pattern": "P1",
+   "title": "Adaptive robotic platform for the installation of refurbishment panels |  Construction Robotics | Springer Nature Link",
+   "query": "walk-behind tracked dumper pendant wired operator"
+  },
+  {
+   "url": "https://ecdn6.globalso.com/upload/p/2896/image_other/2026-01/90-6-copies.jpg",
+   "page": "https://www.gracegroupltd.com/walk-behind-flail-mower/",
+   "pattern": "P16",
+   "title": "",
+   "query": "tracked mower walk behind"
+  },
+  {
+   "url": "https://static.wixstatic.com/media/9134e2_3369a928ec2d4937aec868021637da3b~mv2.jpg/v1/fill/w_480,h_360,al_c,q_80,usm_0.66_1.00_0.01,enc_avif,quality_auto/9134e2_3369a928ec2d4937aec868021637da3b~mv2.jpg",
+   "page": "https://www.tractorsandflails.com/product-page/raptor-x-pedestrian-track-flail-mower",
+   "pattern": "P16",
+   "title": "RAPTOR X Pedestrian Track Flail mower | Tractors and Flails",
+   "query": "tracked mower walk behind"
+  },
+  {
+   "url": "https://lookaside.fbsbx.com/lookaside/crawler/media/?media_id=952843560293388&get_thumbnail=1",
+   "page": "https://www.facebook.com/StartupSelfieOfficial/posts/this-little-robot-sprays-an-entire-orchard-by-itself-/1473660408125738/?locale=de_DE",
+   "pattern": "P16",
+   "title": "",
+   "query": "tracked weeding robot CAN tethered autonomous vineyard orchard"
+  },
+  {
+   "url": "https://cdn.roboticsbd.com/9690-medium_default/steerease-arduino-based-fire-fighting-robot-plug-and-play-robotics-bangladesh.jpg",
+   "page": "https://consumerthai.org/?i=6724902011620",
+   "pattern": "P9",
+   "title": "",
+   "query": "tracked firefighting robot remote CAN wired pendant"
+  },
+  {
+   "url": "https://image.made-in-china.com/2f0j00jaFelDPJEypT/Ple-Big-Power-Agricultural-New-Robot-Lawn-Mower-Remote-Control-Crawler-Mower.jpg",
+   "page": "https://sdplejx.en.made-in-china.com/product/RAipynUVRxrq/China-Ple-Big-Power-Agricultural-New-Robot-Lawn-Mower-Remote-Control-Crawler-Mower.html",
+   "pattern": "P15",
+   "title": "",
+   "query": "tracked RC mulcher tool carrier remote CAN Italy new"
+  },
+  {
+   "url": "https://movexinnovation.com/wp-content/uploads/2023/10/M27HS_Open_4K.png",
+   "page": "https://movexinnovation.com/equipment/mini-loaders/al-27-minidozer/",
+   "pattern": "P10",
+   "title": "",
+   "query": "tracked compact loader mini loader stand-on OR tracked mini dumper crawler carrier"
+  },
+  {
+   "url": "https://www.seppi.com/wp-content/uploads/H5-rc-MAX-75-le-SEPPI-mulcher-flail-schlegelmulcher-remote-radio-control-tool-carrier-vehicle-funkgesteuert-raupenfahrzeug-portratrezzi-cingolato-radiocomandato-automoteur-bm1.png",
+   "page": "https://www.seppi.com/en-us/products/tracked-tool-carriers-and-attachments-3/h5-rc/",
+   "pattern": "P10",
+   "title": "",
+   "query": "tracked compact loader mini loader stand-on OR tracked mini dumper crawler carrier"
+  },
+  {
+   "url": "https://baumalight.com/product/public/assets/images/brush-mulchers/carousel/MS530M/ms530m-cutomer-in-brush-clearing-action.jpg",
+   "page": "https://baumalight.com/product/brush-mulchers/ms530m",
+   "pattern": "P14",
+   "title": "MS530M Brush Mulcher - Efficient Land Clearing Equipment",
+   "query": "tracked wood chipper walk-behind wired pendant CAN operator"
+  },
+  {
+   "url": "https://lookaside.fbsbx.com/lookaside/crawler/media/?media_id=459054790210276",
+   "page": "https://www.facebook.com/cgtneuropeofficial/posts/chinese-researchers-have-recently-unveiled-an-innovative-apple-picking-robot-whi/1496542729172934/",
+   "pattern": "P16",
+   "title": "",
+   "query": "tracked weeding robot CAN tethered autonomous vineyard orchard"
+  },
+  {
+   "url": "https://www.jaspwilson.co.uk/wp-content/uploads/2022/05/55-5.jpg",
+   "page": "https://www.jaspwilson.co.uk/product/fae-rcu-55-remote-controlled-tracked-carrier/",
+   "pattern": "P15",
+   "title": "FAE RCU55 Remote Controlled Tracked Carrier | Jas P Wilson",
+   "query": "tracked RC mulcher tool carrier remote CAN Italy new"
+  },
+  {
+   "url": "https://lookaside.fbsbx.com/lookaside/crawler/media/?media_id=5669486456512108&get_thumbnail=1",
+   "page": "https://www.facebook.com/StartupSelfieOfficial/posts/this-little-robot-sprays-an-entire-orchard-by-itself-/1473660408125738/?locale=de_DE",
+   "pattern": "P16",
+   "title": "",
+   "query": "tracked weeding robot CAN tethered autonomous vineyard orchard"
+  },
+  {
+   "url": "https://en.energreen.it/wp-content/uploads/2021/01/06_Energreen_RoboEVO_Head_130_Mulching_Head_1024x996px.jpg",
+   "page": "https://en.energreen.it/green-maintenance-machines-energreen/robo-remote-controlled-tool-carriers/radio-controlled-tracked-mower/equipment-for-tracked-mulcher-roboevo/mulching-head-130/",
+   "pattern": "P15",
+   "title": "",
+   "query": "tracked RC mulcher tool carrier remote CAN Italy new"
+  },
+  {
+   "url": "https://www.buncerental.com/itemimages/26295.jpg",
+   "page": "https://www.buncerental.com/equipment.asp?action=category&category=33&key=215%2D1920",
+   "pattern": "P16",
+   "title": "",
+   "query": "tracked mower walk behind"
+  },
+  {
+   "url": "https://www.seppi.com/wp-content/uploads/MAX-50-le-SEPPI-mulcher-remote-radio-control-tool-carrier-vehicle-funkgesteuert-raupenfahrzeug-portratrezzi-cingolato-radiocomandato-automoteur-chenniles-vehiculo-bild3-500x500.png",
+   "page": "https://www.seppi.com/en-us/tracked-tool-carriers-and-attachments-3/",
+   "pattern": "P15",
+   "title": "",
+   "query": "tracked RC mulcher tool carrier remote CAN Italy new"
+  },
+  {
+   "url": "https://bettiga.com/wp-content/uploads/2024/07/imer-taurus-700.webp",
+   "page": "https://bettiga.com/prodotto/motocarriola-cingolata-imer-700/",
+   "pattern": "P6",
+   "title": "Motocarriola Cingolata Imer Taurus 700 C-B 11AE Benzina",
+   "query": "pedana operatore stand-on tracked Italy motocarriola"
+  },
+  {
+   "url": "https://www.mdpi.com/sensors/sensors-26-04285/article_deploy/html/images/sensors-26-04285-g007-550.jpg",
+   "page": "https://www.mdpi.com/1424-8220/26/13/4285",
+   "pattern": "P11",
+   "title": "",
+   "query": "tracked shotcrete machine robot arm tethered CAN tunnel operator"
+  },
+  {
+   "url": "https://www.myefco.com/media/filer_public/45/cb/45cbd2da-055f-4aa5-9fcd-04993a26a32e/listing___hero_-_tagliaerba.jpg",
+   "page": "https://www.muriboden.ch/?s=41643785061100",
+   "pattern": "P16",
+   "title": "",
+   "query": "tracked mower walk behind"
+  },
+  {
+   "url": "https://rentnking.com/storage/media/public_assets/2025/10/products/rwODSY-media-mini_skid_trencher_attachment_rental_hover.webp",
+   "page": "https://rentnking.com/product-categories/trencher-rentals",
+   "pattern": "P14",
+   "title": "Trenchers - Rentnking",
+   "query": "tracked wood chipper walk-behind wired pendant CAN operator"
+  },
+  {
+   "url": "https://media.springernature.com/lw685/springer-static/image/art%3A10.1007%2Fs11214-023-00964-0/MediaObjects/11214_2023_964_Fig28_HTML.png",
+   "page": "https://link.springer.com/article/10.1007/s11214-023-00964-0",
+   "pattern": "P11",
+   "title": "",
+   "query": "tracked shotcrete machine robot arm tethered CAN tunnel operator"
+  },
+  {
+   "url": "https://shop.techatronic.com/wp-content/uploads/2025/02/Untitled-design-85.png",
+   "page": "https://shop.techatronic.com/product/fire-fighter-robotautonomous-bt-control/",
+   "pattern": "P9",
+   "title": "",
+   "query": "tracked firefighting robot remote CAN wired pendant"
+  },
+  {
+   "url": "https://media.wired.com/photos/6a51166bd12b964679cc95c9/master/w_2560%2Cc_limit/Big-Interview-UV-Gowanus-Culture.jpg",
+   "page": "https://www.wired.com/story/the-big-interview-podcast-summer-of-ludd-gowanus/",
+   "pattern": "P1",
+   "title": "This Luddite Puppet Hopes You're Not Reading This on Your Smartphone | WIRED",
+   "query": "walk-behind tracked dumper pendant wired operator"
+  },
+  {
+   "url": "https://i5.walmartimages.com/asr/40d9815d-968c-47d3-a77a-89465ebebc19.6d139ad47603d856ef415d0b4cb61e52.jpeg?odnHeight=768&odnWidth=768&odnBg=FFFFFF",
+   "page": "https://getawaycomedy.com/?s=14464714021110",
+   "pattern": "P16",
+   "title": "Zu klein",
+   "query": "tracked mower walk behind"
+  },
+  {
+   "url": "https://www.kuka.com/-/media/kuka-corporate/countries/austria/images/case-studies/baubot-case-study/kuka_baubot_small_image_03_1022x574px.jpg?rev=-1&w=1400&hash=060D3FEA21CA382498B6E33EEE858762",
+   "page": "https://www.kuka.com/en-us/industries/solutions-database/2024/11/baubot-kr-iontec",
+   "pattern": "P11",
+   "title": "",
+   "query": "tracked shotcrete machine robot arm tethered CAN tunnel operator"
+  },
+  {
+   "url": "https://media.springernature.com/lw1200/springer-static/image/art%3A10.1007%2Fs11214-023-00964-0/MediaObjects/11214_2023_964_Fig1_HTML.jpg",
+   "page": "https://link.springer.com/article/10.1007/s11214-023-00964-0",
+   "pattern": "P11",
+   "title": "",
+   "query": "tracked shotcrete machine robot arm tethered CAN tunnel operator"
+  },
+  {
+   "url": "https://www.szitalia.it/wp-content/uploads/2024/11/carosello_Tavola-disegno-1-800x800.jpg",
+   "page": "https://www.szitalia.it/prodotto/motocarriola-idrostatica-kc560eppi/",
+   "pattern": "P6",
+   "title": "",
+   "query": "pedana operatore stand-on tracked Italy motocarriola"
+  },
+  {
+   "url": "https://projectsfactory.in/wp-content/uploads/2022/08/android-firefighting-robot-4608-by-3456-1-1024x768.png",
+   "page": "https://projectsfactory.in/product/android-based-fire-fighting-robot/",
+   "pattern": "P9",
+   "title": "",
+   "query": "tracked firefighting robot remote CAN wired pendant"
+  },
+  {
+   "url": "https://www.agtequipment.com/cdn/shop/files/CBT23_v2_512x512.png?v=1783611975",
+   "page": "https://www.agtequipment.com/products/micro-digger-m-drg?srsltid=AfmBOoqKjd_mNwlg42miyxshjMxINC1UEnVWfNB8PYCbbql_r4_eUIbN",
+   "pattern": "P10",
+   "title": "",
+   "query": "tracked compact loader mini loader stand-on OR tracked mini dumper crawler carrier"
+  },
+  {
+   "url": "https://www.colmac-italia.com/wp-content/uploads/2021/05/5-Motocarriola-cingolata-con-cassone-ribaltabile-Tucano-330-M-HONDA-GP-160.jpg",
+   "page": "https://www.colmac-italia.com/prodotto/motocarriola-cingolata-tucano-330-m-gx-motore-honda-con-cassone-ribaltabile/?srsltid=AfmBOopt2_elAxkRGL1bMgtr82zOCVHcC2OCIhHg4xd9E2RdHC77s26v",
+   "pattern": "P6",
+   "title": "Motocarriola cingolata con cassone ribaltabile Tucano 330 M GX",
+   "query": "pedana operatore stand-on tracked Italy motocarriola"
+  },
+  {
+   "url": "https://skidpro.com/wp-content/uploads/2023/03/hd3-field.jpg",
+   "page": "https://skidpro.com/blog/brush-clearing-equipments/?srsltid=AfmBOopViZGlt_zbNqT_ejTe8aMj9KnwwqTOl7a6AL5YxJCtAJLzmCZs",
+   "pattern": "P8",
+   "title": "Best Equipment Options for Clearing Brush Efficiently",
+   "query": "tracked stump grinder radio remote CAN walk-behind"
+  },
+  {
+   "url": "https://bettiga.com/wp-content/uploads/2024/06/motocarriola-350kg-tekna-foto2.jpg",
+   "page": "https://bettiga.com/prodotto/motocarriola-a-cingoli-tt350-tekna/",
+   "pattern": "P6",
+   "title": "No can",
+   "query": "pedana operatore stand-on tracked Italy motocarriola"
+  },
+  {
+   "url": "https://sickconnect.com/wp-content/uploads/2025/10/AGRICOBOTS__003-1024x683.jpg",
+   "page": "https://sickconnect.com/revolutionizing-orchard-automation-how-agricobots-and-sick-are-cultivating-the-future-of-farming/",
+   "pattern": "P16",
+   "title": "Revolutionizing Orchard Automation: How Agricobots and SICK Are Cultivating  the Future of Farming - SICK Sensor Connection",
+   "query": "tracked weeding robot CAN tethered autonomous vineyard orchard"
+  },
+  {
+   "url": "https://www.verdefacile.eu/14298-thickbox_default/motocarriola-cingolata-ama-tag-500-td-dumper-idraulico.jpg",
+   "page": "https://www.verdefacile.eu/it/meccanica/532-motocarriola-cingolata-ama-tag-500-td-dumper-idraulico-8005582369950.html",
+   "pattern": "P6",
+   "title": "No can",
+   "query": "pedana operatore stand-on tracked Italy motocarriola"
+  }
+ ]
+}

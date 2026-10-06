@@ -97,18 +97,48 @@ def operator_interface_scope(kabine=False, plattform=False, sitz=False, deichsel
     return "autonom-oder-RC"
 
 
-def priorisiere(can_bus, preis_eur, hmi_typ, ist_ziel=True, claude_urteil="", groesse="unklar") -> str:
+def _can_absent(can_bus) -> bool:
+    """True nur wenn CAN als NICHT vorhanden belegt ist. 'unklar' zaehlt NICHT als abwesend
+    (Datenblatt-Pruefung via verify-specs steht noch aus)."""
+    s = str(can_bus or "").strip().lower()
+    return ("rein-hydraulisch" in s or "rein hydraulisch" in s or "kein can" in s
+            or "no can" in s or s in ("nein", "hydraulisch", "pneumatisch"))
+
+
+def _sil_pflichtig(sil) -> bool:
+    return str(sil or "").strip().lower() in ("ja", "true", "sil", "sil2", "pflicht")
+
+
+# Menschliche Verdikte, die einen Record hart aus dem Scope nehmen (dominieren die Priorität).
+_VERDIKT_OUT = ("funksteuerung", "no can", "nocan", "kein objekt", "unbrauchbar",
+                "out of scope", "out-of-scope", "rad", "autonom")
+
+
+def _verdikt_out(v) -> bool:
+    s = str(v or "").strip().lower()
+    return any(k in s for k in _VERDIKT_OUT)
+
+
+def priorisiere(can_bus, preis_eur, hmi_typ, ist_ziel=True, claude_urteil="", groesse="unklar",
+                sil_pflicht="unklar", mensch_verdikt="") -> str:
+    """Priorität nach NBB-Suchbaum. Reihenfolge:
+    X, wenn: menschliches Verdikt = raus (Funksteuerung/No-Can/Out/…) ODER nicht Ziel / Out-of-Scope /
+       zu klein / SIL-Pflicht / belegt kein CAN.
+    Sonst gilt CAN als PFLICHT: A = CAN bestätigt + Preis ok, B = CAN bestätigt + Preis zu niedrig,
+       C = CAN noch unklar (wartet auf verify-specs). OHNE bestätigtes CAN gibt es KEIN A/B."""
+    if _verdikt_out(mensch_verdikt):     # reviewter Mensch dominiert die Maschine
+        return "X"
     if not ist_ziel or claude_urteil == "Out-of-Scope" or groesse == "zu klein":
         return "X"                       # ausser Scope -> nicht an den Vertrieb
-    """A = CAN + Preis ueber Schwelle (bester Fit), B = CAN oder Preis ok, C = hydraulisch/guenstig.
-    Hydraulische bleiben drin (Pierres Vorgabe), CAN hat aber Vorrang."""
+    if _sil_pflichtig(sil_pflicht):
+        return "X"                       # SIL-Pflicht -> Funk-Upgrade unwirtschaftlich
+    if _can_absent(can_bus):
+        return "X"                       # CAN ist Pflichtkriterium (belegt kein CAN)
     can_ok = can_bus in ("CAN belegt", "wahrscheinlich CAN")
+    if not can_ok:
+        return "C"                       # CAN unklar -> Datenblatt-Pruefung offen, NIE B/A ohne CAN
     preis_ok = (preis_eur is None) or (preis_eur >= PREIS_SCHWELLE_EUR)
-    if can_ok and preis_ok:
-        return "A"
-    if can_ok or preis_ok:
-        return "B"
-    return "C"
+    return "A" if preis_ok else "B"
 
 
 _DEALER = ("masterwholesale.", "houseofcontractors.", "mascus.", "machineryzone.",
@@ -258,19 +288,74 @@ def _parse_json(txt):
     return {}
 
 
+# --- Entitäts-Dedup (gleiche Maschine mehrfach) -------------------------------------------
+# OEM-Namen normalisieren: Rechtsformen/Länder-/Gattungs-Wörter raus, damit „colmac" == „colmac italia",
+# „fae" == „fae group s.p.a." als dieselbe Firma gelten.
+_OEM_NOISE = {"srl", "spa", "gmbh", "ag", "inc", "llc", "ltd", "co", "corp", "kg", "bv", "oy",
+              "ab", "as", "sa", "sas", "group", "gruppe", "italia", "company", "the", "sro", "kft"}
+
+
+def norm_oem(s) -> str:
+    s = str(s or "").lower().replace(".", "")
+    toks = [t for t in re.split(r"[^a-z0-9]+", s) if t and t not in _OEM_NOISE]
+    return " ".join(toks)
+
+
+def _norm_token(s) -> str:
+    return re.sub(r"[^a-z0-9]+", "", str(s or "").lower())
+
+
+def dedup_key(oem, modell):
+    """Schlüssel für Entitäts-Dedup. Mit Modell: erster OEM-Token + normalisiertes Modell
+    (fängt Namensvarianten wie pek agroline/automotive + slopehelper). Ohne Modell: voller norm. OEM.
+    Leerer OEM -> ('','') = nicht deduplizierbar."""
+    o = norm_oem(oem)
+    m = _norm_token(modell)
+    if not o:
+        return ("", "")
+    first = o.split(" ")[0]
+    return (first, m) if m else (o, "")
+
+
+def mark_duplicates(rows):
+    """Setzt r['intern_duplikat'] = 'Duplikat' für alle bis auf den best-gefüllten Record je
+    (OEM,Modell)-Gruppe; '' für Gewinner und nicht-deduplizierbare Records. Gibt die Zahl der Duplikate zurück."""
+    groups = {}
+    for r in rows:
+        k = dedup_key(r.get("oem") or "", r.get("modell") or "")
+        if k == ("", ""):
+            r["intern_duplikat"] = ""
+            continue
+        groups.setdefault(k, []).append(r)
+
+    def _score(r):
+        return (r.get("hmi_typ", "unklar") != "unklar",
+                r.get("can_bus") in ("CAN belegt", "wahrscheinlich CAN"),
+                float(r.get("claude_konfidenz") or 0))
+    dupes = 0
+    for grp in groups.values():
+        grp_sorted = sorted(grp, key=_score, reverse=True)
+        grp_sorted[0]["intern_duplikat"] = ""
+        for r in grp_sorted[1:]:
+            r["intern_duplikat"] = "Duplikat"
+            dupes += 1
+    for r in rows:
+        r.setdefault("intern_duplikat", "")
+    return dupes
+
+
 # Few-Shot aus echten Review-Verdikten (kalibriert die Urteilsschicht gegen die Mensch-Labels;
 # adressiert die gemessene Ueber-Ablehnung: Baseline-Recall 16 %). Kurz halten (Kosten).
 FEW_SHOT_URTEIL = (
     "\nBEISPIELE (so urteilen wir):\n"
-    "1) Kettengetriebener Stand-on-/Aufsitz-Mulcher, hydrostatisch, KEIN CAN erwaehnt -> "
-    "'In-Scope' (Anwendung passt; fehlendes CAN ist kein Ausschluss -> Aktuator-Retrofit).\n"
-    "2) Kettenmaschine, die laut Text BEREITS per Funk/Radio ferngesteuert wird -> 'Out-of-Scope' "
-    "(Verdraengung, schon RC).\n"
-    "3) Autonomer/roboterhafter Kettenschlepper ohne Kabine/Plattform/Sitz/Deichsel -> 'Out-of-Scope' "
-    "(autonom, kein Bediener am Geraet).\n"
-    "4) Rad-/Reifen-Maschine oder blosses Anbaugeraet/Bauteil -> 'Out-of-Scope'.\n"
-    "5) Text leer/sehr duenn oder Aggregator-/Social-/Listing-Seite (kein OEM-Inhalt) -> 'Unsicher' "
-    "(NICHT Out-of-Scope; Kandidat wird spaeter nachaufgeloest statt verworfen).\n"
+    "1) Kettenmaschine mit Kabel-/Pendant-Bedienung, Datenblatt nennt CAN/J1939/IQAN, keine SIL-Norm, "
+    "noch kein Funk -> 'In-Scope' (Kette + CAN + NO-SIL, Upgrade moeglich).\n"
+    "2) Kettenmaschine, rein hydraulisch, KEIN CAN -> 'Out-of-Scope' (CAN ist Pflichtkriterium).\n"
+    "3) Kettenmaschine, laut Text BEREITS per Funk/Radio ferngesteuert -> 'Out-of-Scope' (Verdraengung).\n"
+    "4) Datenblatt/Anwendung erzwingt SIL2/PL d/EN ISO 13849 -> 'Out-of-Scope' (SIL-Pflicht, Funk-Upgrade unwirtschaftlich).\n"
+    "5) Rad-/Reifen-Maschine, Anbaugeraet/Bauteil, oder autonom ohne Betriebsschnittstelle -> 'Out-of-Scope'.\n"
+    "6) Quelle leer/Aggregator ODER CAN/SIL am Text nicht klaerbar -> 'Unsicher' "
+    "(NICHT verwerfen; geht in verify-specs zur Datenblatt-Pruefung).\n"
 )
 
 
@@ -298,8 +383,10 @@ def enrich(page_text, image_url, pattern, cfg, client=None, lessons="") -> dict:
         "\n  Werte: 'CAN belegt' (CAN/CANopen/J1939 direkt genannt), 'wahrscheinlich CAN' "
         "(IQAN/Danfoss/BODAS oder E-Hydraulik genannt), 'wahrscheinlich rein-hydraulisch' "
         "(Gegen-Anker genannt), 'unklar' (nichts dazu im Text). "
-        "WICHTIG: Fehlendes CAN ist KEIN Ausschlussgrund. Passt die Anwendung, fehlt nur CAN, "
-        "ist eine Aktuator-Nachrüstung denkbar -> Kandidat BLEIBT (Regel Pierre 'no can').\n"
+        "WICHTIG: CAN ist ein PFLICHTKRITERIUM. 'wahrscheinlich rein-hydraulisch'/kein CAN -> "
+        "claude_urteil 'Out-of-Scope'. Ist CAN im Text nicht klaerbar -> 'unklar' + claude_urteil "
+        "'Unsicher' (Datenblatt-Pruefung via verify-specs, NICHT raten). CAN wird an den Specs "
+        "verifiziert, nie am Bild.\n"
         "- can_reason: Textbeleg für can_bus (welche Stelle)\n"
         "- preis_eur: Listenpreis/UVP als ZAHL in EUR (USD/GBP grob umrechnen), sonst null. "
         f"Achte auf: {PREIS_HINWEISE}\n"
@@ -309,11 +396,16 @@ def enrich(page_text, image_url, pattern, cfg, client=None, lessons="") -> dict:
         "- leistung_kw: Motorleistung als ZAHL in kW (HP/PS umrechnen: 1 HP = 0.75 kW), sonst null. "
         "Suche: Motorleistung, engine power, kW, HP, PS, potenza, puissance\n"
         "- groesse_beleg: Textstelle zu Gewicht/Leistung (Originalangabe mit Einheit)\n"
+        "- sil_pflicht: Ist eine SIL-/PLd-Sicherheitspflicht erkennbar? Suche 'SIL', 'SIL2', 'PL d', "
+        "'EN ISO 13849', 'functional safety', 'Personentransport'. Werte: 'ja' (Norm genannt/Anwendung "
+        "erzwingt SIL), 'nein', 'unklar'. Ziel sind NO-SIL-Maschinen (SIL-Pflicht = Out).\n"
+        "- sil_beleg: Textstelle zur SIL-Einschaetzung\n"
         "- sprache: Sprache der Seite\n- reason: kurze Begründung mit Textbeleg für hmi_typ\n"
-        "- claude_urteil: DEIN eigenes Scope-Urteil, unabhaengig vom Pattern-Vorschlag: "
-        "'In-Scope' (kettengetrieben, im Zielsegment; fehlendes CAN allein ist KEIN Grund fuer Out), "
-        "'Out-of-Scope' (Raeder/Bauteil/keine Zielmaschine ODER schon ferngesteuert=Verdraengung "
-        "ODER autonom), 'Unsicher' (Quelle zu duenn).\n"
+        "- claude_urteil: DEIN eigenes Scope-Urteil, unabhaengig vom Pattern-Vorschlag. "
+        "'In-Scope' NUR wenn: kettengetrieben UND CAN belegt/wahrscheinlich UND NICHT SIL-pflichtig UND "
+        "noch kein Funk. 'Out-of-Scope' bei: Raeder/Bauteil/keine Zielmaschine, kein CAN (rein-hydraulisch), "
+        "schon ferngesteuert (Verdraengung), autonom, oder SIL-Pflicht. 'Unsicher' wenn Quelle zu duenn "
+        "oder CAN/SIL am Text nicht klaerbar (-> verify-specs).\n"
         "  BILD-/BAUART-HEURISTIK (stark): Fehlen Kabine, Plattform, Sitz UND Deichsel, wird die "
         "Maschine nicht vom Bediener am Geraet gefuehrt -> sie ist AUTONOM oder bereits FERNGESTEUERT "
         "-> Out-of-Scope. Ist eine dieser Betriebsschnittstellen vorhanden (Bediener am Geraet) -> "
@@ -327,7 +419,7 @@ def enrich(page_text, image_url, pattern, cfg, client=None, lessons="") -> dict:
         f"\n\nSeitentext:\n{page_text[:8000]}\n\n"
         'Antworte NUR JSON {"ist_zielmaschine","oem","modell","anwendung","hmi_typ","can_bus",'
         '"can_reason","preis_eur","preis_beleg","gewicht_t","leistung_kw","groesse_beleg",'
-        '"sprache","reason"}.')
+        '"sil_pflicht","sil_beleg","sprache","reason"}.')
     try:
         msg = client.messages.create(model=model, max_tokens=700,
                                      messages=[{"role": "user", "content": prompt}])
@@ -342,6 +434,8 @@ def enrich(page_text, image_url, pattern, cfg, client=None, lessons="") -> dict:
         d.setdefault("preis_eur", None)
         d.setdefault("gewicht_t", None)
         d.setdefault("leistung_kw", None)
+        d.setdefault("sil_pflicht", "unklar")
+        d.setdefault("sil_beleg", "")
         for k in ("oem", "modell", "anwendung", "sprache", "reason", "can_reason", "preis_beleg",
                   "groesse_beleg"):
             d.setdefault(k, "")
@@ -397,6 +491,14 @@ def run(cfg, manifest_path="agent6_image_candidates.json",
             cands = json.load(open(manifest_path, encoding="utf-8"))
         except Exception:
             return {"error": f"Manifest nicht lesbar: {manifest_path}"}
+
+    # Run-Tracking: eindeutige Run-ID + Snapshot des Eingangsstands (Vorher/Nachher-Historie).
+    from . import run_tracking as _rt
+    run_id = _rt.new_run_id()
+    try:
+        _rt.snapshot_review(cands, run_id, suffix="before")
+    except Exception:
+        pass
 
     seen_pages, uniq = set(), []
     for c in cands:
@@ -478,10 +580,13 @@ def run(cfg, manifest_path="agent6_image_candidates.json",
                      "claude_urteil": d.get("claude_urteil", "Unsicher"),
                      "claude_konfidenz": d.get("claude_konfidenz", 0.0),
                      "claude_begruendung": d.get("claude_begruendung", ""),
+                     "sil_pflicht": d.get("sil_pflicht", "unklar"), "sil_beleg": d.get("sil_beleg", ""),
                      "prioritaet": priorisiere(d.get("can_bus", "unklar"), d.get("preis_eur"),
                                                d.get("hmi_typ", "unklar"),
                                                d.get("ist_zielmaschine", True),
-                                               d.get("claude_urteil", ""), gstat),
+                                               d.get("claude_urteil", ""), gstat,
+                                               d.get("sil_pflicht", "unklar"),
+                                               c.get("verdikt", "")),
                      "sprache": d.get("sprache", ""),
                      "reason": d.get("reason", ""), "bild_url": c.get("url", ""),
                      "quell_seite": used_page, "harvested_at": datetime.date.today().isoformat()})
@@ -490,15 +595,9 @@ def run(cfg, manifest_path="agent6_image_candidates.json",
     for s in ("ok", "zu klein", "unklar"):
         stats["groesse_" + s.replace(" ", "_")] = sum(1 for r in rows if r.get("groesse_status") == s)
 
-    best = {}
-    for r in rows:
-        key = (str(r.get("oem") or "").strip().lower(), str(r.get("modell") or "").strip().lower())
-        if key == ("", ""):
-            best[id(r)] = r
-            continue
-        if key not in best or (best[key]["hmi_typ"] == "unklar" and r["hmi_typ"] != "unklar"):
-            best[key] = r
-    final = list(best.values())
+    # Entitäts-Dedup: gleiche (OEM,Modell) mehrfach -> Duplikate markieren, Gewinner behalten.
+    stats["intern_duplikate"] = mark_duplicates(rows)
+    final = [r for r in rows if r.get("intern_duplikat") != "Duplikat"]
     for r in final:
         stats[_bucket(r["hmi_typ"])] += 1
     for r in final:
@@ -529,6 +628,24 @@ def run(cfg, manifest_path="agent6_image_candidates.json",
         airtable.update_fields(size_rows, {"Gewicht-t": "gewicht_t", "Leistung-kW": "leistung_kw",
                                            "Größe-Status": "groesse_status"})
         stats["airtable_size_failed"] = getattr(airtable, "write_failures", 0)
+        # Interne Dubletten markieren (eigenes Feld, kollidiert NICHT mit Pipedrive 'Dedup-Status').
+        dup_rows = [{"bild_url": r.get("bild_url"), "intern_duplikat": r.get("intern_duplikat", "")}
+                    for r in rows]
+        airtable.update_fields(dup_rows, {"Intern-Duplikat": "intern_duplikat"})
+        # Run-Stempel an die Records + eine Zeile in die 'Runs'-Tabelle (Prämissen-Historie).
+        airtable.stamp_run(rows, run_id, _rt.REGEL_VERSION)
+        summary = _rt.run_summary(run_id, n_records=len(rows),
+                                  query_set=str(cfg.get("harvest", {}).get("patterns", "")),
+                                  commit=_rt.git_commit())
+        airtable.log_run(summary)
+    # Lokaler Run-Log (git-getrackt) — Audit-Trail unabhängig von Airtable, immer geschrieben.
+    stats["run_id"] = run_id
+    stats["regel_version"] = _rt.REGEL_VERSION
+    try:
+        _rt.write_run_log(_rt.run_summary(run_id, n_records=stats.get("rows_geschrieben", 0),
+                                          query_set=str(cfg.get("harvest", {}).get("patterns", ""))))
+    except Exception:
+        pass
     stats["out_csv"] = out_csv
     return stats
 
@@ -550,8 +667,8 @@ def _write_csv(rows, path):
     cols = ["prioritaet", "claude_urteil", "claude_konfidenz", "claude_begruendung",
             "pattern", "oem", "modell", "anwendung", "hmi_typ", "can_bus",
             "can_reason", "preis_eur", "preis_beleg", "gewicht_t", "leistung_kw",
-            "groesse_status", "groesse_beleg", "sprache", "reason", "bild_url",
-            "quell_seite", "harvested_at"]
+            "groesse_status", "groesse_beleg", "sil_pflicht", "sil_beleg",
+            "intern_duplikat", "sprache", "reason", "bild_url", "quell_seite", "harvested_at"]
     try:
         with open(path, "w", newline="", encoding="utf-8") as f:
             w = csv.DictWriter(f, fieldnames=cols)

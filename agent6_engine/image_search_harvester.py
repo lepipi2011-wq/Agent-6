@@ -14,9 +14,25 @@ Ohne AIRTABLE_TOKEN wird nur ein lokales Manifest (JSON) geschrieben.
 Suche/Schreiben laufen auf deiner Maschine; die Logik ist per Injection offline testbar.
 """
 from __future__ import annotations
-import os, json, time, datetime
+import os, json, time, datetime, re
 from urllib.parse import urlparse
 from . import source_trust as _trust
+
+
+def norm_url(u):
+    """Normalisiert eine Bild-URL fuer den Dedup-Vergleich: ohne Schema/Query/Fragment/'www.'/
+    Trailing-Slash, lowercase, plus haeufige CDN-Groessensuffixe (-300x200, _thumb, -scaled ...).
+    So gelten http/https-, Query- und Groessen-Varianten desselben Bildes als EIN Bild."""
+    if not u:
+        return ""
+    s = str(u).strip().lower()
+    s = re.sub(r"^https?://", "", s)
+    s = s.split("#")[0].split("?")[0]
+    if s.startswith("www."):
+        s = s[4:]
+    s = s.rstrip("/")
+    s = re.sub(r"[-_](\d{2,4}x\d{2,4}|thumb|thumbnail|scaled|small|medium|large)(?=\.[a-z]{2,4}$)", "", s)
+    return s
 
 # Pattern-Code -> exakter Choice-Name in der Airtable-Base "Agent 6 — Bild-Review"
 PATTERN_CHOICE = {
@@ -168,7 +184,7 @@ class AirtableWriter:
                 for rec in d.get("records", []):
                     u = rec.get("fields", {}).get("Bild-URL")
                     if u:
-                        urls.add(u)
+                        urls.add(norm_url(u))      # normalisiert -> faengt URL-Varianten
                 offset = d.get("offset")
                 if not offset:
                     break
@@ -223,7 +239,8 @@ class AirtableWriter:
             pat = _pv[0] if _pv else ""
             titel = str(f.get("Notizen", "") or "").replace("Bildtitel:", "").strip()
             out.append({"url": url, "page": page, "pattern": pat,
-                        "title": titel, "query": str(f.get("Query", "") or "")})
+                        "title": titel, "query": str(f.get("Query", "") or ""),
+                        "verdikt": str(f.get("Verdikt", "") or "")})
             if limit and len(out) >= limit:
                 break
         return out
@@ -252,7 +269,8 @@ class AirtableWriter:
             pat = _pv[0] if _pv else ""
             titel = str(f.get("Notizen", "") or "").replace("Bildtitel:", "").strip()
             out.append({"url": url, "page": page, "pattern": pat,
-                        "title": titel, "query": str(f.get("Query", "") or "")})
+                        "title": titel, "query": str(f.get("Query", "") or ""),
+                        "verdikt": str(f.get("Verdikt", "") or "")})
             if limit and len(out) >= limit:
                 break
         return out
@@ -278,7 +296,8 @@ class AirtableWriter:
             pat = _pv[0] if _pv else ""
             titel = str(f.get("Notizen", "") or "").replace("Bildtitel:", "").strip()
             out.append({"url": url, "page": page, "pattern": pat,
-                        "title": titel, "query": str(f.get("Query", "") or "")})
+                        "title": titel, "query": str(f.get("Query", "") or ""),
+                        "verdikt": str(f.get("Verdikt", "") or "")})
             if limit and len(out) >= limit:
                 break
         return out
@@ -354,6 +373,37 @@ class AirtableWriter:
         done = self._patch_batches(updates)
         return done
 
+    def stamp_run(self, rows, run_id, regel_version):
+        """Stempelt Run-ID + Regel-Version an die Review-Records (SEPARAT: fehlt die Spalte,
+        reisst es NICHT den Kern-Write mit). Match ueber Bild-URL."""
+        if not self.enabled or not rows:
+            return 0
+        stamp_rows = [{"bild_url": r.get("bild_url"), "__run": run_id, "__regel": regel_version}
+                      for r in rows]
+        try:
+            return self.update_fields(stamp_rows, {"Run-ID": "__run", "Regel-Version": "__regel"})
+        except Exception as e:
+            print(f"  Run-Stempel uebersprungen ({type(e).__name__}) — Feld 'Run-ID'/'Regel-Version' vorhanden?")
+            return 0
+
+    def log_run(self, summary, runs_table="Runs"):
+        """Schreibt EINE Zeile in die Airtable-'Runs'-Tabelle (Prämissen-Historie).
+        Fehlt die Tabelle, wird gewarnt statt abzubrechen — der lokale Run-Log bleibt die Absicherung."""
+        if not self.enabled:
+            return False
+        try:
+            resp = self._request_with_retry(
+                "POST", f"https://api.airtable.com/v0/{self.base}/{runs_table}",
+                headers=self._hdr(),
+                json={"records": [{"fields": {k: v for k, v in summary.items() if v is not None}}],
+                      "typecast": True}, timeout=30)
+            resp.raise_for_status()
+            return True
+        except Exception as e:
+            body = getattr(getattr(e, "response", None), "text", "")
+            print(f"  Runs-Tabelle nicht beschrieben ({type(e).__name__} {body[:120]}) — Tabelle 'Runs' vorhanden?")
+            return False
+
     def write(self, records):
         """records: Liste von dicts mit fertigen Feldwerten. 10 je Request."""
         if not self.enabled:
@@ -424,7 +474,7 @@ def harvest(cfg, patterns, per_pattern=15, searcher=None, writer=None,
             print(f"  (kein --patterns -> alle aktiven Repo-Patterns: {', '.join(only_patterns)})")
     q_stats = {}
     known = writer.existing_urls() if hasattr(writer, "existing_urls") else set()
-    seen = set(known)
+    seen = set(norm_url(u) for u in known)     # normalisiert -> idempotent auch bei bereits-normalisierten
     all_records, manifest = [], []
     stats = {"searched": 0, "found": 0, "junk": 0, "dup": 0, "new": 0,
              "by_pattern": {}, "airtable_written": 0,
@@ -453,10 +503,11 @@ def harvest(cfg, patterns, per_pattern=15, searcher=None, writer=None,
                     reason = _trust.block_reason(url)
                     stats["blocked"][reason] = stats["blocked"].get(reason, 0) + 1
                     continue
-                if url in seen:
+                nu = norm_url(url)
+                if nu in seen:                     # Dedup ueber NORMALISIERTE URL
                     stats["dup"] += 1
                     continue
-                seen.add(url)
+                seen.add(nu)
                 cand = {"url": url, "page": res.get("page", ""), "source": res.get("source", ""),
                         "title": res.get("title", ""),
                         "query": q, "id": f"{code}__{_domain(url)}__{len(seen)}"}

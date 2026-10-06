@@ -1,0 +1,12 @@
+{
+ "Run-ID": "20260929-1127-v3.2",
+ "Datum": "2026-09-29",
+ "Regel-Version": "v3.2 — CAN=Pflicht, No-Can=out, SIL-Ausschluss, Bild=Betriebsschnittstelle, Trust vor Volumen",
+ "Commit": "fcf24a1",
+ "Query-Set": "",
+ "Records": 1,
+ "Recall": null,
+ "Precision": null,
+ "Yield": null,
+ "Notiz": ""
+}

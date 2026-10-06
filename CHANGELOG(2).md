@@ -35,22 +35,6 @@
 - **Entscheidung:** Pipedrive-Cleanup/-Dedup läuft **immer im Nachgang** (in-session über den Composio-Connector),
   NICHT im lokalen Cron. Der lokale `pipedrive_dedup.py` (xlsx-basiert) bleibt optional, ist aber nicht mehr der Standardweg.
 
-## 2026-09-29 — verify-specs + CLAUDE.md
-- **`verify_specs.py` neu:** sucht das Datenblatt/die Spec-Seite je Record (OEM-Domain/Datenblatt bevorzugt, Aggregatoren
-  abgewertet), extrahiert **CAN/Gewicht/Leistung/SIL mit Beleg**, berechnet Priorität neu, schreibt inkl. **Spec-Quelle** nach Airtable.
-  CLI: `--from-airtable --only-unklar --airtable`. Löst den prio_X-Berg auf (CAN war 94 % „unklar").
-- **Airtable-Felder neu:** `SIL-Pflicht`, `Spec-Quelle` (klick-verifizierbarer Datenblatt-Link).
-- **`CLAUDE.md` neu** (Repo-Wurzel): Session-Start-Ritual + Definition of Done (committen+pushen) + Invarianten — wird von Claude Code automatisch geladen.
-- 4 neue Tests → **120 grün**.
-
-## 2026-09-30 — priorisiere-Fix (Befund aus Airtable-Review)
-- **Kein B ohne bestätigtes CAN:** früher gab leerer Preis `preis_ok=True` → B trotz CAN=unklar (53 falsche B's in der Base).
-  Jetzt: ohne bestätigtes CAN → **C** (wartet auf verify-specs); A/B nur mit CAN belegt/wahrscheinlich.
-- **Mensch-Verdikt dominiert:** `priorisiere(..., mensch_verdikt)` → Funksteuerung/No-Can/Out/Rad/autonom = **X**, egal was die Maschine meint.
-  `candidates_missing/_reenrich/_all` liefern jetzt `verdikt`; run() + verify_specs reichen es durch.
-- Befund-Kontext: Airtable-Review zeigte 220× X / 53× B (fast alle CAN=unklar), 0× In-Scope, verify-specs noch nicht gelaufen (Spec-Quelle 0, SIL leer, CAN 96% unklar). Der Fix macht die B-Spalte ehrlich.
-- 3 neue Tests → **123 grün**.
-
 ## [Unreleased] — offen
 - Urteilsschicht reparieren: OEM-Resolve VOR dem Urteil + Few-Shot aus echten Labels (Ziel: Recall 16 % → >80 %).
 - `--verify-specs`: automatische Datenblatt-Verifikation (CAN/Gewicht/Leistung → Airtable), gründlich.
