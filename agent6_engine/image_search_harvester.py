@@ -17,6 +17,7 @@ from __future__ import annotations
 import os, json, time, datetime, re
 from urllib.parse import urlparse
 from . import source_trust as _trust
+from . import phash as _phash
 
 
 def norm_url(u):
@@ -302,6 +303,32 @@ class AirtableWriter:
                 break
         return out
 
+    def existing_hashes(self):
+        """Bereits gespeicherte pHashes (Feld 'Bild-Hash') -> lauf-übergreifende Bild-Dedup."""
+        if not self.enabled:
+            return set()
+        hashes, offset = set(), None
+        try:
+            for _ in range(20):
+                params = {"fields[]": "Bild-Hash", "pageSize": 100}
+                if offset:
+                    params["offset"] = offset
+                r = self._request_with_retry(
+                    "GET", f"https://api.airtable.com/v0/{self.base}/{self.table}",
+                    headers=self._hdr(), params=params, timeout=30)
+                r.raise_for_status()
+                d = r.json()
+                for rec in d.get("records", []):
+                    h = rec.get("fields", {}).get("Bild-Hash")
+                    if h:
+                        hashes.add(h)
+                offset = d.get("offset")
+                if not offset:
+                    break
+        except Exception as e:
+            print(f"  ⚠ Airtable-Lesefehler (existing_hashes): {e} — Bild-Dedup unvollstaendig.")
+        return hashes
+
     def update_fields(self, rows, field_map, key="bild_url"):
         """Schreibt beliebige Felder in bestehende Records.
         field_map: {Airtable-Spalte: Schluessel-in-row}. Match ueber Bild-URL."""
@@ -443,6 +470,7 @@ def build_record(cand, pattern_code):
         "Notizen": ("Bildtitel: " + cand.get("title", "")) if cand.get("title") else "",
         "Status": "Neu",
         "Harvest-Datum": datetime.date.today().isoformat(),
+        "Bild-Hash": cand.get("img_hash", ""),
     }
 
 
@@ -475,8 +503,13 @@ def harvest(cfg, patterns, per_pattern=15, searcher=None, writer=None,
     q_stats = {}
     known = writer.existing_urls() if hasattr(writer, "existing_urls") else set()
     seen = set(norm_url(u) for u in known)     # normalisiert -> idempotent auch bei bereits-normalisierten
+    # pHash-Dedup (optional, cfg harvest.phash_dedup): gleiches Bild unter anderer URL erkennen.
+    hcfg = (cfg or {}).get("harvest", {}) or {}
+    phash_on = bool(hcfg.get("phash_dedup"))
+    phash_thr = int(hcfg.get("phash_threshold", 5))
+    seen_hashes = (list(writer.existing_hashes()) if (phash_on and hasattr(writer, "existing_hashes")) else [])
     all_records, manifest = [], []
-    stats = {"searched": 0, "found": 0, "junk": 0, "dup": 0, "new": 0,
+    stats = {"searched": 0, "found": 0, "junk": 0, "dup": 0, "dup_img": 0, "new": 0,
              "by_pattern": {}, "airtable_written": 0,
              "blocked": {"social/stock": 0, "marktplatz": 0, "cdn/thumbnail": 0, "keine-domain": 0}}
 
@@ -508,8 +541,16 @@ def harvest(cfg, patterns, per_pattern=15, searcher=None, writer=None,
                     stats["dup"] += 1
                     continue
                 seen.add(nu)
+                img_hash = ""
+                if phash_on:
+                    img_hash = _phash.fetch_image_hash(url) or ""
+                    if img_hash and _phash.duplicate_of(img_hash, seen_hashes, phash_thr):
+                        stats["dup_img"] += 1     # gleiches Bild unter anderer URL -> raus
+                        continue
+                    if img_hash:
+                        seen_hashes.append(img_hash)
                 cand = {"url": url, "page": res.get("page", ""), "source": res.get("source", ""),
-                        "title": res.get("title", ""),
+                        "title": res.get("title", ""), "img_hash": img_hash,
                         "query": q, "id": f"{code}__{_domain(url)}__{len(seen)}"}
                 all_records.append(build_record(cand, code))
                 manifest.append({"url": url, "pattern": code, "query": q,

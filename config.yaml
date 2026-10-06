@@ -29,6 +29,8 @@ harvest:
   vlm_model: "claude-haiku-4-5-20251001"
   request_timeout: 15
   user_agent: "Agent6-ImageHarvester/1.0 (research; respects robots)"
+  phash_dedup: true                      # perzeptueller Bild-Hash: gleiches Foto unter anderer URL = Dublette
+  phash_threshold: 5                     # max. Hamming-Distanz (0 = pixelgleich, ~5 = reskaliert/rekomprimiert)
   respect_robots: true
 
 dedup:

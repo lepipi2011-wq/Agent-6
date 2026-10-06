@@ -1,0 +1,13 @@
+{
+ "run_id": "20261006-1834-v3.2",
+ "regel_version": "v3.2",
+ "suffix": "before",
+ "count": 1,
+ "records": [
+  {
+   "url": "a.jpg",
+   "pattern": "P10",
+   "page": "https://movacolor.com"
+  }
+ ]
+}
